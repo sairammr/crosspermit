@@ -16,6 +16,7 @@ import { useReadContract } from "wagmi";
 import { crossPermitAbi } from "@crosspermit/sdk";
 import { CHAINS, CROSS_PERMIT, chainById } from "../../src/config";
 import { type ClientMandate, createClient, revokeClient, useClients } from "../../src/clients";
+import { SignInNote } from "../../src/session-ui";
 import { useTreasury } from "../../src/relayer";
 
 import "./desk.css";
@@ -125,13 +126,7 @@ export function ClientsTab({ refreshKey, onChange }: { refreshKey: number; onCha
           </button>
         </div>
         {clients === null && <p className="note">Loading…</p>}
-        {clients === false && (
-          <p className="note">
-            The relayer refused the client list. That is expected when <code>RELAYER_API_KEYS</code> is set and this
-            dashboard has no <code>NEXT_PUBLIC_RELAYER_API_KEY</code> — the list is the desk&rsquo;s, not the
-            public&rsquo;s.
-          </p>
-        )}
+        {clients === false && <SignInNote />}
         {Array.isArray(clients) && clients.length === 0 && <p className="note">No clients yet.</p>}
         {Array.isArray(clients) && clients.length > 0 && (
           <div className="table-wrap">

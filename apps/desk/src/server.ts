@@ -19,6 +19,7 @@
 //   POST /v1/clients/:token/link   passthrough — the intent signature is the auth
 //   POST /v1/intents               passthrough — same reason
 //   GET  /v1/pools[?owner=0x…]     the venues, read off each chain's PoolManager
+//   /v1/intents/*, /v1/quota/*     passthrough — open upstream, including the SSE stream
 //   GET  /v1/chains, /healthz      passthrough
 import { isAddress } from "viem";
 
@@ -230,6 +231,12 @@ const server = Bun.serve({
       } catch (e) {
         return passUpstream(e);
       }
+    }
+
+    // Intent status, its live stream, the recent list, a quota read. Open upstream and streamed
+    // through untouched, so a dashboard behind this layer needs no second origin to talk to.
+    if (req.method === "GET" && (path.startsWith("/v1/intents") || path.startsWith("/v1/quota/"))) {
+      return upstream.proxy(path + url.search);
     }
 
     const one = path.match(/^\/v1\/clients\/([0-9a-f]{32})$/);

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import { RELAYER_URL } from "./config";
+import { DESK_API } from "./config";
 
 export type ClientStatus = "awaiting" | "active" | "revoked";
 
@@ -24,12 +24,11 @@ export type ClientMandate = {
   status: ClientStatus;
 };
 
-const apiKey = process.env.NEXT_PUBLIC_RELAYER_API_KEY ?? "";
-
-const headers = (): HeadersInit => ({
-  "content-type": "application/json",
-  ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
-});
+/**
+ * No key. The desk layer holds the relayer's, and answers these from the signed-in manager's session
+ * — so the book this returns is that manager's book rather than every manager's.
+ */
+const headers = (): HeadersInit => ({ "content-type": "application/json" });
 
 /** The desk's own client list. Requires the desk's key when the relayer is not running open. */
 export function useClients(refreshKey: number) {
@@ -37,7 +36,7 @@ export function useClients(refreshKey: number) {
 
   useEffect(() => {
     let live = true;
-    fetch(`${RELAYER_URL}/v1/clients`, { headers: headers() })
+    fetch(`${DESK_API}/clients`, { headers: headers() })
       .then(async (r) => (r.ok ? ((await r.json()).clients as ClientMandate[]) : false))
       .then((d) => live && setClients(d))
       .catch(() => live && setClients(false));
@@ -59,7 +58,7 @@ export async function createClient(input: {
   name: string;
   mandate?: string;
 }): Promise<{ ok: boolean; client?: ClientMandate; error?: string }> {
-  const res = await fetch(`${RELAYER_URL}/v1/clients`, {
+  const res = await fetch(`${DESK_API}/clients`, {
     method: "POST",
     headers: headers(),
     body: JSON.stringify(input),
@@ -69,7 +68,7 @@ export async function createClient(input: {
 }
 
 export async function revokeClient(token: string): Promise<boolean> {
-  const res = await fetch(`${RELAYER_URL}/v1/clients/${token}/revoke`, { method: "POST", headers: headers() });
+  const res = await fetch(`${DESK_API}/clients/${token}/revoke`, { method: "POST", headers: headers() });
   return res.ok;
 }
 
@@ -88,7 +87,7 @@ export function useMandate(token: string | undefined) {
   const load = useCallback(() => {
     if (!token) return;
     setState({ kind: "loading" });
-    fetch(`${RELAYER_URL}/v1/clients/${token}`)
+    fetch(`${DESK_API}/clients/${token}`)
       .then(async (r) => {
         if (r.status === 404) return setState({ kind: "missing" });
         if (!r.ok) return setState({ kind: "offline" });
@@ -114,7 +113,7 @@ export async function linkMandate(
   intentId: string,
   terms: { capUnits: string; ttlHours: number; chainIds: number[] },
 ): Promise<{ ok: boolean; error?: string }> {
-  const res = await fetch(`${RELAYER_URL}/v1/clients/${token}/link`, {
+  const res = await fetch(`${DESK_API}/clients/${token}/link`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ owner, intentId, ...terms }),

@@ -79,6 +79,36 @@ DESK_URL=http://localhost:8788 bun apps/desk/scripts/live-smoke.ts
 `import.ts` is a script and not a route on purpose: claiming a mandate you did not create is exactly
 the privilege this layer withholds, so it belongs to whoever already holds the relayer's API key.
 
+## How `apps/web` talks to it
+
+The dashboard no longer speaks to the relayer at all. `next.config.mjs` rewrites `/api/desk/*` to this
+layer, so from the browser it is same-origin:
+
+```
+NEXT_PUBLIC_RELAYER_API_KEY   ✗ gone — there is nothing secret left to ship
+DESK_URL=http://localhost:8788   server-side only; the browser never learns it
+/api/desk/*  →  <DESK_URL>/v1/*
+```
+
+A rewrite rather than a cross-origin fetch, because of the cookie: it is `SameSite=Lax`, which a
+browser will not send cross-site, and `SameSite=None` would demand HTTPS in development. Same-origin
+also means no CORS to configure and no second address in the bundle.
+
+What changed on the web side:
+
+| | |
+|---|---|
+| `src/desk.ts` | session, `proveOwnership`, desk registry, scope-check. No React, no wagmi. |
+| `src/session-ui.tsx` | the **Prove ownership** button in the console header, and the note that explains an empty book. |
+| `src/clients.ts`, `src/relayer.ts` | same functions, pointed at `DESK_API`, key removed. |
+
+The client signing page `/c/:token` is untouched and needs no session: submitting an intent and
+binding a mandate are authorised by the client's own signature, and this layer passes both through —
+along with intent status, the SSE stream and quota reads, which stream rather than buffer.
+
+This app's own page at `:8788` stays as an operator view: it works with no Next build and no
+dashboard, which is what you want when the question is whether the layer itself is up.
+
 ## Tests
 
 ```sh

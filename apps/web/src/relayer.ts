@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Hex } from "viem";
 
-import { RELAYER_URL } from "./config";
+import { DESK_API } from "./config";
 
 export type LegStatus = "pending" | "submitting" | "submitted" | "confirmed" | "failed";
 
@@ -35,12 +35,14 @@ export type ChainRow = {
   auditTrail: "multibaas" | "none";
 };
 
-const apiKey = process.env.NEXT_PUBLIC_RELAYER_API_KEY ?? "";
-
-const headers = (): HeadersInit => ({
-  "content-type": "application/json",
-  ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
-});
+/**
+ * No key, and nothing points at the relayer any more.
+ *
+ * Every call here goes to the desk layer on this app's own origin. It holds the relayer's key, gates
+ * the reads that belong to somebody (`/treasury`, `/activity`) on the session, and streams the open
+ * ones straight through — including the SSE below, which is why that works unchanged.
+ */
+const headers = (): HeadersInit => ({ "content-type": "application/json" });
 
 /** What the relayer serves, and with whose key. Null while loading, false when unreachable. */
 export function useRelayerChains() {
@@ -48,7 +50,7 @@ export function useRelayerChains() {
 
   useEffect(() => {
     let live = true;
-    fetch(`${RELAYER_URL}/v1/chains`)
+    fetch(`${DESK_API}/chains`)
       .then((r) => r.json())
       .then((d) => live && setState(d))
       .catch(() => live && setState(false));
@@ -61,7 +63,7 @@ export function useRelayerChains() {
 }
 
 export async function postIntent(wire: unknown): Promise<{ status: number; body: Record<string, unknown> }> {
-  const res = await fetch(`${RELAYER_URL}/v1/intents`, {
+  const res = await fetch(`${DESK_API}/intents`, {
     method: "POST",
     headers: headers(),
     body: JSON.stringify(wire),
@@ -86,7 +88,7 @@ export function useIntentStream(intentId: string | null) {
       setStatus(null);
       return;
     }
-    const es = new EventSource(`${RELAYER_URL}/v1/intents/${intentId}/sse`);
+    const es = new EventSource(`${DESK_API}/intents/${intentId}/sse`);
     source.current = es;
 
     const onSnapshot = (e: MessageEvent) => setStatus(JSON.parse(e.data) as IntentStatus);
@@ -98,7 +100,7 @@ export function useIntentStream(intentId: string | null) {
     // A `leg` event carries one leg, not the whole intent, so refetch the snapshot rather than
     // trying to merge partial state — the authoritative answer is one request away.
     const onLeg = () => {
-      fetch(`${RELAYER_URL}/v1/intents/${intentId}`)
+      fetch(`${DESK_API}/intents/${intentId}`)
         .then((r) => r.json())
         .then(setStatus)
         .catch(() => undefined);
@@ -119,7 +121,7 @@ export function useIntentStream(intentId: string | null) {
 
   const refresh = useCallback(() => {
     if (!intentId) return;
-    fetch(`${RELAYER_URL}/v1/intents/${intentId}`)
+    fetch(`${DESK_API}/intents/${intentId}`)
       .then((r) => r.json())
       .then(setStatus)
       .catch(() => undefined);
@@ -131,7 +133,7 @@ export function useIntentStream(intentId: string | null) {
 export function useRecentIntents(refreshKey: number) {
   const [intents, setIntents] = useState<{ intentId: string; owner: string; root: string; createdAt: number }[]>([]);
   useEffect(() => {
-    fetch(`${RELAYER_URL}/v1/intents?limit=25`)
+    fetch(`${DESK_API}/intents?limit=25`)
       .then((r) => r.json())
       .then((d) => setIntents(d.intents ?? []))
       .catch(() => setIntents([]));
@@ -143,7 +145,7 @@ export function useQuota(owner: string | undefined, refreshKey: number) {
   const [quota, setQuota] = useState<{ intents: number; gasWei: string; resetsInMs: number } | null>(null);
   useEffect(() => {
     if (!owner) return;
-    fetch(`${RELAYER_URL}/v1/quota/${owner}`)
+    fetch(`${DESK_API}/quota/${owner}`)
       .then((r) => r.json())
       .then((d) => setQuota(d.remaining ?? null))
       .catch(() => setQuota(null));
@@ -188,7 +190,7 @@ export function useTreasury(owner: string | undefined, refreshKey: number) {
     }
     let live = true;
     setView(null);
-    fetch(`${RELAYER_URL}/v1/treasury/${owner}`)
+    fetch(`${DESK_API}/treasury/${owner}`)
       .then(async (r) => ({ ok: r.ok, body: (await r.json()) as TreasuryView }))
       .then(({ ok, body }) => live && setView(ok ? body : { ...body, rows: body.rows ?? [] }))
       .catch(() => live && setView(false));
@@ -237,7 +239,7 @@ export function useActivity(owner: string | undefined, refreshKey: number) {
     }
     let live = true;
     setView(null);
-    fetch(`${RELAYER_URL}/v1/activity/${owner}`)
+    fetch(`${DESK_API}/activity/${owner}`)
       .then(async (r) => (r.ok ? ((await r.json()) as ActivityView) : false))
       .then((d) => live && setView(d))
       .catch(() => live && setView(false));

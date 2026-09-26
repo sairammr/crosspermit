@@ -109,6 +109,21 @@ export const chainById = (id: number) => CHAINS.find((c) => c.id === id);
 export const TOKEN_SLOTS = Math.min(...CHAINS.map((c) => c.tokens.length));
 export const tokenAt = (c: ChainInfo, slot: number) => c.tokens[slot] ?? c.token;
 
+/**
+ * The desk layer, reached through this app's own origin (see `next.config.mjs`).
+ *
+ * Everything the dashboard asks of the control plane goes here, not to the relayer: the layer holds
+ * the relayer's API key, scopes each answer to whoever signed in, and passes the open endpoints
+ * through untouched. The dashboard therefore ships no key of its own — there is nothing to ship.
+ */
+export const DESK_API = "/api/desk";
+
+/**
+ * The relayer's own address, kept only for display.
+ *
+ * Nothing fetches this any more. It is printed on the platform panel so an operator can see which
+ * relayer is behind the layer.
+ */
 export const RELAYER_URL = process.env.NEXT_PUBLIC_RELAYER_URL ?? "http://localhost:8787";
 
 /**

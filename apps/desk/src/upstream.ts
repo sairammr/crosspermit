@@ -41,6 +41,33 @@ export async function call<T = unknown>(
   return body as T;
 }
 
+/**
+ * Forward a request and hand back the relayer's own Response, body stream intact.
+ *
+ * For the endpoints the relayer already serves to anyone — intent status, its SSE stream, the recent
+ * list, a quota read. `call` would buffer, and buffering an SSE stream is a request that never ends.
+ * The key is NOT attached: these need none, and an open endpoint should not start depending on it.
+ */
+export async function proxy(path: string, init: { method?: string; body?: BodyInit | null } = {}): Promise<Response> {
+  const res = await fetch(`${RELAYER_URL}${path}`, {
+    method: init.method ?? "GET",
+    headers: { "content-type": "application/json" },
+    body: init.body ?? undefined,
+  }).catch(() => null);
+  if (!res) {
+    return new Response(JSON.stringify({ error: "relayer unreachable", code: "upstream_down" }), {
+      status: 502,
+      headers: { "content-type": "application/json" },
+    });
+  }
+  // Content-Length would be wrong once the body is a stream, and content-encoding was already
+  // undone by fetch. Everything else the relayer said is kept.
+  const headers = new Headers(res.headers);
+  headers.delete("content-length");
+  headers.delete("content-encoding");
+  return new Response(res.body, { status: res.status, headers });
+}
+
 export type Mandate = {
   token: string;
   name: string;
