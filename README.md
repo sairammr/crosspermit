@@ -120,7 +120,15 @@ bun run packages/sdk/scripts/lifecycle.ts
 # one click: start the relayer, then drive the same flow through one POST
 bun run apps/relayer/src/server.ts &
 bun run packages/sdk/scripts/lifecycle.ts --only authorize --via-relayer http://localhost:8787
+
+# the dashboard
+cp apps/web/.env.example apps/web/.env.local   # add a Reown project id for WalletConnect
+cd apps/web && bun run build && bunx next start -p 3100
 ```
+
+The dashboard also takes `?owner=0x...` for a read-only view of someone else's
+outstanding authority — a risk officer reviewing an account should not need its
+keys, and the treasury and audit screens are reads with nothing to sign.
 
 ## The lifecycle
 
