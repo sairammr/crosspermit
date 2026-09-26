@@ -1,0 +1,360 @@
+# CrossPermit — full build plan
+
+**One signature. Every chain. Institutional custody, yield and RWA execution on top.**
+
+CrossPermit is three layers that stack:
+
+| Layer | What it is | Who it serves |
+|---|---|---|
+| **L1 — Permission** | `CrossPermit`, a cross-chain allowance contract at one deterministic address on every chain. A single EIP-712 signature over a merkle root of per-chain permit bundles authorises allowances and transfers on all of them. | anyone |
+| **L2 — Execution** | `crosspermit-relayer`. Takes one signed root plus the bundles, validates them off-chain, and fans the submissions out to every chain in parallel. One click, N chains, no per-chain wallet prompts. | anyone |
+| **L3 — Treasury** | The institutional desk: MultiBaas for custody/policy/audit, Aave v4 spokes for yield, a tokenized-equity desk (NVDA and peers) for exposure. | funds, treasuries, desks |
+
+L1 is the moat: today an institution moving collateral across four chains signs four
+times, from four wallet sessions, each one a separate approval risk and a separate
+audit-log entry. CrossPermit collapses that to one signature and one audit record,
+and — because it is selector-identical to Permit2's transfer surface — it spends
+through Uniswap's own unmodified Universal Router.
+
+---
+
+## Status
+
+| Phase | Deliverable | State |
+|---|---|---|
+| P0 | Monorepo, pinned toolchain, license posture | **done** |
+| P1 | L1 contracts rebranded, restructured, compiling | **done** |
+| P2 | TS SDK — bundles, leaves, merkle, one signature | |
+| P3 | Test suite ported and green | |
+| P4 | Deterministic deploy, address reproduced, 3 testnets live | |
+| P5 | Relayer — one click, N chains | |
+| P6 | MultiBaas treasury adapter | |
+| P7 | Aave v4 yield + tokenized-equity desk | |
+| P8 | Institutional dashboard (WalletConnect) | |
+| P9 | Hardening — fuzz, invariants, threat model, ops runbook | |
+
+---
+
+## Architecture
+
+```
+                         ┌─────────────────────────────┐
+  institution ──signs────▶  ONE EIP-712 CrossPermit     │
+   (1 click)              │  merkleRoot over N bundles  │
+                         └──────────────┬──────────────┘
+                                        │  root + bundles + proofs
+                         ┌──────────────▼──────────────┐
+                         │      crosspermit-relayer    │
+                         │  verify → fan out → stream  │
+                         │  (MultiBaas Cloud Wallet    │
+                         │   or local signer)          │
+                         └───┬────────┬────────┬───────┘
+          ┌──────────────────┘        │        └──────────────────┐
+   ┌──────▼──────┐            ┌───────▼─────┐            ┌────────▼────┐
+   │  Ethereum   │            │    Base     │            │  Unichain   │
+   │ CrossPermit │            │ CrossPermit │            │ CrossPermit │
+   │  0xSAME…    │            │  0xSAME…    │            │  0xSAME…    │
+   └──────┬──────┘            └──────┬──────┘            └──────┬──────┘
+          │ allowance                │                          │
+   ┌──────▼──────────────────────────▼──────────────────────────▼──────┐
+   │  spenders: Uniswap Universal Router · Aave v4 spoke · RWA desk     │
+   └───────────────────────────────────────────────────────────────────┘
+```
+
+Why one address everywhere is non-negotiable: the EIP-712 domain pins
+`chainId = 1` so the signature is chain-agnostic, but the domain still includes
+`verifyingContract`. Same address or the signature does not port. Deployment
+therefore goes through the ERC-2470 singleton factory with identical init code
+and an identical salt — which is why every dependency in this repo is pinned to
+a commit.
+
+---
+
+## P1 — L1 contracts (done)
+
+Vendored in, renamed, restructured, no upstream branding anywhere in the product
+surface. Rename map:
+
+| was | is | note |
+|---|---|---|
+| `Permit3` | `CrossPermit` | also the EIP-712 domain name |
+| `IPermit3` | `ICrossPermit` | |
+| `PermitBase` | `AllowanceLedger` | the allowance/lock storage |
+| `IPermit` | `IAllowanceLedger` | |
+| `NonceManager` | `SaltRegistry` | salts are non-sequential nonces |
+| `INonceManager` | `ISaltRegistry` | |
+| `MultiTokenPermit` | `MultiTokenTransfer` | ERC20/721/1155 transfer surface |
+| `IMultiTokenPermit` | `IMultiTokenTransfer` | |
+| `TypedEncoder` | `WitnessEncoder` | moved `libs/` → `lib/` |
+| `ERC7702TokenApprover` | `ERC7702Approver` | |
+| `Permit3ApproverModule` | `CrossPermitApproverModule` | |
+| `SIGNED_PERMIT3_TYPEHASH` | `SIGNED_CROSSPERMIT_TYPEHASH` | new type string ⇒ new typehash |
+| `CANCEL_PERMIT3_TYPEHASH` | `CANCEL_CROSSPERMIT_TYPEHASH` | |
+| `PERMIT_WITNESS_TYPEHASH_STUB` | `CROSSPERMIT_WITNESS_TYPEHASH_STUB` | |
+| `ZeroPermit3()` | `ZeroCrossPermit()` | new error selector |
+
+Renaming the EIP-712 type strings and the domain name changes the domain
+separator, every typehash, and therefore the deterministic address. That is the
+intent: CrossPermit is a distinct signing domain, and a signature for one is
+meaningless to the other.
+
+**Deliberately unchanged**, because they are interoperability surface rather than
+identity:
+
+- the `transferFrom` overloads — byte-identical selectors to Permit2, which is
+  the only reason Uniswap's unmodified Universal Router can spend a CrossPermit
+  allowance;
+- `allowance`, `DOMAIN_SEPARATOR`, `hashChainPermits`, the `permit` entrypoints —
+  standard verbs a wallet or indexer expects to find.
+
+**Verification:** `forge build` clean; `grep -ri permit3 contracts/src` empty.
+
+---
+
+## P2 — SDK
+
+`packages/sdk` — the client half, and the only place a permission is ever built.
+
+- `bundle.ts` — `approveEntry` / `transferEntry` / `lockEntry`, `tokenKey`, the
+  `modeOrExpiration` encoding.
+- `leaf.ts` — `leafOf` computes `hashChainPermits` **locally**. This must never
+  come from an `eth_call`: the leaf is the only thing between the user and a root
+  they did not build. A hostile RPC that answers with the hash of its own bundle
+  would have the wallet display nothing but an opaque `merkleRoot`.
+  `leafOfChecked` computes locally and then asserts the chain agrees.
+- `merkle.ts` — left-leaning tree, OpenZeppelin sorted-pair hashing (what
+  `MerkleProof.processProof` reconstructs with). Last leaf sits one hop from the
+  root, so order the chains cheapest-first, most-expensive-last.
+- `sign.ts` — `signRoot`, domain `chainId` pinned to 1. Not a bug; do not
+  substitute the live chain id.
+- `submit.ts` — per-chain submission.
+- `intent.ts` — the one-click envelope the relayer consumes: `{owner, salt,
+  deadline, timestamp, root, signature, chains: [{chainId, bundle, proof}]}`.
+
+**Verification:** `bun test` in the package, plus P3's parity tests pinning the
+SDK against the compiled contract.
+
+## P3 — Tests
+
+Ported from the reference harness, renamed, plus new coverage.
+
+- `CrossChainFlow.t.sol` — every chain replayed from one post-`setUp` snapshot
+  with a different `block.chainid`, so the chains share nothing but the
+  signature. Asserts: one signature ⇒ allowances everywhere; anyone may submit
+  but only the owner can spend; wrong-chain replay, wrong-proof replay, double
+  submit, tampered bundle, expired signature, expired allowance all revert; a
+  later bundle can `LOCK` a spender across chains; the domain separator is
+  identical on every chain.
+- `LeafParity.t.sol` — the SDK's local leaf vs `CrossPermit.hashChainPermits`
+  over six bundle shapes (empty, single, approve+transfer, lock, `uint160`/
+  `uint48` maxima, hashed non-address token key). This is the test that earns the
+  right to compute the leaf client-side.
+- `MerkleParity.t.sol` — SDK trees and proofs for 1..8 leaves re-verified with
+  OpenZeppelin's `MerkleProof`. Matters because the contract never compares
+  roots: it feeds `processProof`'s output straight into the signed struct hash,
+  so a client tree that disagrees fails silently rather than loudly.
+- `SwapEncoding.t.sol` — decode the SDK's real calldata with the Solidity structs
+  the deployed router really uses; assert byte equality against solc's own
+  `abi.encode`.
+- `RouterFork.t.sol` — opt-in (`FORK=1`) live-chain proof: seed a v4 pool, then
+  against the deployed CrossPermit and router, show the swap reverts before the
+  permit, settles after it, that the router holds no plain ERC20 approval, and
+  that the allowance ends at zero.
+
+**Verification:** `forge test` green offline; `FORK=1 forge test` green against
+the three live testnets.
+
+## P4 — Deterministic deployment
+
+- `script/DeployCrossPermit.s.sol` — ERC-2470 (`0xce0042B8…`) singleton factory,
+  salt from env. Deploys `CrossPermit`, then `ERC7702Approver` at
+  `keccak256(abi.encode(salt, "ERC7702"))`.
+- `script/deploy.sh` — preflight (chain id matches, factory present, deployer
+  funded), predict the address from init code + salt, skip chains that already
+  have code, and **never** read an empty `cast code` as success: a rate-limited
+  RPC prints nothing and that is how a skipped deploy reports done.
+- Router half: clone Uniswap's Universal Router at a pinned commit, patch exactly
+  one `permit2` literal per chain's deploy parameters (count literals, not lines),
+  deploy, then restore the clone. `PERMIT2` is an internal immutable with no
+  getter, so the substitution is confirmed three ways: the deploy log, the
+  broadcast artifact's constructor args, and the CrossPermit address appearing in
+  the router's deployed runtime bytecode.
+- `deployments/*.json` records address, salt, factory, compiler settings and
+  chain ids so a clean clone can re-derive the address from the repo alone.
+
+**Verification:** re-derive the address offline with `cast keccak`; read
+`DOMAIN_SEPARATOR()` and `SIGNED_CROSSPERMIT_TYPEHASH()` off all three live
+deployments and assert they are byte-identical.
+
+## P5 — Relayer: one click, N chains
+
+`apps/relayer`. The user signs once; the relayer does the rest.
+
+```
+POST /v1/intents          → { intentId }        submit a signed intent
+GET  /v1/intents/:id      → status snapshot
+GET  /v1/intents/:id/sse  → live per-chain event stream
+GET  /v1/quote            → per-chain gas estimate before signing
+GET  /healthz /readyz     → ops
+```
+
+**Validation before a single wei of gas.** Every check runs off-chain first,
+because a relayer that forwards garbage burns its own gas and can be griefed
+into insolvency:
+
+1. `deadline` is in the future, with margin.
+2. Each bundle's `chainId` equals the chain it is addressed to.
+3. Each leaf recomputed locally from the bundle — never trusted from the payload.
+4. `processProof(leaf, proof) == root` for every chain.
+5. `signature` recovers to `owner` over the CrossPermit domain — EOA via ECDSA,
+   contract accounts via ERC-1271.
+6. Idempotency on `(owner, salt, chainId)`; a replay returns the first result.
+7. Per-chain simulation (`eth_call`) before broadcast. A bundle that would revert
+   is rejected, not submitted.
+
+**Why the relayer cannot steal.** It only submits what the owner already signed.
+Transfer entries name their recipient inside the signed bundle, and allowance
+entries name their spender; the relayer chooses neither. Spending still requires
+the spender to be the caller, so a relayer holding a submitted permit can pull
+nothing. The relayer's only privilege is paying gas, and its only powers of abuse
+are censorship (not submitting) and ordering — both mitigated by the client being
+able to submit any chain itself, unchanged. That fallback is a product
+requirement, not a nicety: it is what keeps the relayer non-custodial.
+
+**Execution.** Per-chain worker, bounded concurrency, EIP-1559 fee escalation,
+nonce lease per signer, exponential backoff, and a circuit breaker per chain.
+Signing through the MultiBaas Cloud Wallet + Transaction Manager where
+configured (P6), local `privateKey` signer otherwise. State in SQLite, one row
+per (intent, chain), so a restart resumes rather than double-submits.
+
+**Verification:** three anvil chains carrying the real testnet chain ids; assert
+one POST ⇒ three confirmed permits; kill the relayer mid-fan-out and assert the
+restart neither double-submits nor strands a chain.
+
+## P6 — MultiBaas as the treasury platform
+
+MultiBaas (Curvegrid) is the institutional control plane: custody, policy, audit
+trail, and a transaction manager that resubmits for you.
+
+`packages/multibaas` — a thin typed adapter over the REST API:
+
+| Concern | MultiBaas surface | Used for |
+|---|---|---|
+| Custody | Cloud Wallets, HSM-backed keys | the relayer's per-chain signers; the treasury's own signer |
+| Submission | Transaction Manager (TXM) | nonce management, automatic resubmission, status |
+| Contracts | contract deploy/link/call API | CrossPermit + spoke addresses per chain, one registry |
+| Observability | event queries, webhooks | allowance granted/consumed, position opened, APY change |
+| Audit | per-key transaction history | one signature ⇒ one auditable record across N chains |
+
+Design rules:
+
+- **Config-driven, degrades gracefully.** `MULTIBAAS_URL` + `MULTIBAAS_API_KEY`
+  present ⇒ Cloud Wallet signing and TXM submission. Absent ⇒ local signer, same
+  interface, loud log line saying which mode is active. No code path silently
+  changes who holds the keys.
+- **The adapter is an interface with two implementations, which is the one
+  abstraction this codebase earns** — because the two differ in *where the private
+  key lives*, and that is exactly the seam an institution audits.
+- Webhook receiver verifies the HMAC signature before it parses the body.
+- Treat every field that comes back from the API as untrusted input, including
+  addresses.
+
+**Verification:** adapter contract tests against a recorded-fixture server in
+no-key mode; a live smoke test (`bun run smoke:multibaas`) the moment credentials
+land.
+
+## P7 — Institutional: yield and RWA
+
+### Aave v4 yield
+
+Aave v4 went live on Ethereum mainnet on 2026-03-30 and Avalanche on 2026-07-15,
+with a Hub-and-Spoke design: a Liquidity Hub holds the assets, Spokes are
+independent markets with their own collateral set, risk parameters and
+liquidation rules, all drawing on shared hub liquidity. That shape is the reason
+it fits here — an institution wants its own risk perimeter without giving up
+liquidity depth.
+
+`contracts/src/treasury/YieldRouter.sol`
+
+- `supply` / `withdraw` against a configured Spoke, pulling the principal through
+  `CrossPermit.transferFrom` so the deposit rides the same single signature.
+- `apr()` / `apy()` — APR read from the spoke's rate, APY as the continuous
+  compounding of it; both returned in ray with the basis stated in the ABI docs,
+  because a treasury that mistakes one for the other misreports its own returns.
+- Per-spoke caps and an allowlist, so a mispriced spoke cannot absorb the book.
+- `PositionRegistry` — per-account, per-chain position accounting, so the
+  dashboard and the auditor read the same numbers.
+
+### Tokenized-equity desk (NVDA and peers)
+
+Tokenized equities crossed $1.07B on-chain; Ondo (`NVDAon`, Ethereum and BNB,
+~61% share) and Backed's xStocks (`NVDAx`, ERC-20, ~25%) are the two venues that
+matter. Both are ERC-20s with a regulated custodian holding the underlying 1:1.
+
+`contracts/src/treasury/EquityDesk.sol`
+
+- Venue adapters behind one `IEquityVenue` interface — `mint`/`redeem` where the
+  issuer supports it, AMM route otherwise.
+- Every buy funded by a `CrossPermit` allowance, so a cross-chain rebalance is
+  still one signature.
+- Slippage bound and a staleness-checked oracle on every fill; reject rather than
+  fill wide.
+- **Compliance is a first-class input, not a footnote.** These instruments are
+  access-gated (Reg D / Reg S, jurisdictional allowlists). The desk carries an
+  `IComplianceGate` the venue adapter must consult, defaulting to deny. The
+  product decision of who may trade is the operator's; the contract's job is to
+  make that decision explicit and enforced rather than implicit.
+
+**Verification:** fork tests against live mainnet Aave v4 and the live NVDAon /
+NVDAx tokens — supply, accrue, withdraw, and a round-trip buy/sell with the
+allowance ending at zero. No mainnet broadcast.
+
+## P8 — Institutional dashboard
+
+`apps/web` — Next.js App Router, wagmi + viem, WalletConnect via Reown AppKit.
+
+- **Permission** — build a multichain intent, see every chain's bundle in plain
+  language before signing, sign once, watch the relayer light up each chain live
+  over SSE. One click end to end.
+- **Treasury** — positions per chain, idle vs deployed, allowance ledger with
+  what is outstanding and to whom, and a kill switch that signs a cross-chain
+  `LOCK` for a spender.
+- **Yield** — Aave v4 spokes with APR and APY side by side and the difference
+  labelled, utilisation, caps, and a one-signature "deploy idle cash" flow.
+- **Desk** — NVDA and peers: quote, slippage bound, compliance status, fill.
+- **Audit** — one signature expanded into its N on-chain records, each with an
+  explorer link. This is the screen that sells the product to a risk committee.
+
+Non-negotiables: never render an amount without its decimals resolved from the
+token; show the signing payload before the wallet does; no action is reachable
+without its simulation having succeeded.
+
+## P9 — Hardening
+
+- Fuzz `leafOf` and the merkle builder against the contract (parity under random
+  bundle shapes, 1..32 leaves).
+- Invariants: allowance never exceeds what was signed; a `LOCK` cannot be
+  bypassed by any ordering; the same bundle cannot apply twice on one chain.
+- Relayer: property test that no validated intent is ever submitted to the wrong
+  chain, and a chaos test that kills workers mid-fan-out.
+- Threat model doc: hostile RPC, hostile relayer, compromised relayer key,
+  compromised MultiBaas key, reorg during fan-out, and a griefing economic
+  analysis.
+- Ops runbook: key rotation, per-chain circuit breaker, incident response.
+
+---
+
+## Ground rules
+
+1. **The leaf is computed client-side. Always.** Any change that lets a leaf
+   arrive from an RPC is a vulnerability, not a refactor.
+2. **Pinned dependencies are load-bearing.** Bumping a submodule changes the init
+   code and therefore the address. Treat it as a migration.
+3. **The relayer is a convenience, never a dependency.** Every flow must remain
+   completable by the client alone.
+4. **Two implementations of the signer, no more abstractions than that.** Local
+   and MultiBaas differ in where the key lives; nothing else in this codebase
+   gets an interface for a single implementation.
+5. **Simulate before broadcast**, everywhere, without exception.
+6. **APR and APY are labelled distinctly** in every ABI, API response and pixel.
+7. **Compliance gates default to deny.**
