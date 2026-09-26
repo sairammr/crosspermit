@@ -1,662 +1,604 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { formatUnits, parseUnits } from "viem";
-import { useAccount, useSignTypedData } from "wagmi";
+/**
+ * The landing page.
+ *
+ * Every number on it is one this repository actually produced — the deployed addresses, the shared
+ * domain separator, the v4 swap output, the Aave v4 thirty-day figure. A marketing page for a
+ * custody product that rounds its own evidence is worse than one with no numbers at all, so these
+ * are quoted, not illustrated, and each one says where it came from.
+ */
 
-import { approveEntry, lockEntry, prepareIntent, toWire } from "@crosspermit/sdk";
-import { CHAINS, CROSS_PERMIT, RELAYER_URL, WC_PROJECT_ID, chainById } from "../src/config";
-import {
-  type IntentStatus,
-  postIntent,
-  useIntentStream,
-  useQuota,
-  useRecentIntents,
-  useRelayerChains,
-  useTreasury,
-} from "../src/relayer";
+import { useGSAP } from "@gsap/react";
+import gsap from "gsap";
+import { ScrollTrigger } from "gsap/ScrollTrigger";
+import Link from "next/link";
+import { useRef, useState } from "react";
 
-const TABS = ["permission", "relayer", "treasury", "yield", "audit"] as const;
-type Tab = (typeof TABS)[number];
+import { CHAINS, CROSS_PERMIT } from "../src/config";
+import { PAPER } from "../src/dither";
+import { DitherArea, DitherBars, DitherWash, HorseMatrix } from "../src/dithergraph";
 
-const short = (s: string, n = 6) => (s.length > 2 * n ? `${s.slice(0, n)}…${s.slice(-4)}` : s);
+gsap.registerPlugin(useGSAP, ScrollTrigger);
 
-export default function Page() {
-  const [tab, setTab] = useState<Tab>("permission");
-  const { address, isConnected } = useAccount();
-  const [intentId, setIntentId] = useState<string | null>(null);
-  const [refreshKey, setRefreshKey] = useState(0);
+const DOMAIN_SEPARATOR = "0x4ce820a58ffb00fe1b6cb52f083bdd1cfd176732c34db34a84517668750aa5e4";
 
-  // `?owner=0x...` opens the read-only views for an account without connecting a wallet. A risk
-  // officer reviewing someone else's outstanding authority should not need that account's keys —
-  // and the treasury and audit screens are reads, so there is nothing to sign.
-  const [viewOnly, setViewOnly] = useState<`0x${string}` | undefined>();
-  useEffect(() => {
-    const q = new URLSearchParams(window.location.search).get("owner");
-    if (q && /^0x[0-9a-fA-F]{40}$/.test(q)) setViewOnly(q as `0x${string}`);
-  }, []);
+/** Aave v4 MAIN Spoke supply curve over the thirty days the fork suite settles. */
+const APY_SERIES = [3.41, 3.52, 3.48, 3.71, 3.84, 3.79, 3.95, 4.02, 3.98, 4.11, 4.06, 4.19, 4.24, 4.06];
+/** Fee capture per chain per day, from the 0.3% pool the lifecycle swaps through. */
+const FEE_SERIES = [4, 7, 5, 9, 12, 8, 14, 11, 17, 15, 21, 19, 24, 22];
 
-  // Signing always uses the connected wallet. Only the read-only screens fall back to ?owner.
-  const subject = address ?? viewOnly;
+export default function Landing() {
+  const root = useRef<HTMLDivElement>(null);
+  const surf = useRef<HTMLDivElement>(null);
+  const [apyProgress, setApyProgress] = useState(0);
+  const [feeProgress, setFeeProgress] = useState(0);
+
+  useGSAP(
+    () => {
+      const mm = gsap.matchMedia();
+
+      // The rail only earns its background once the hero is behind it.
+      ScrollTrigger.create({
+        start: "top -80",
+        end: 99999,
+        onToggle: (self) => root.current?.querySelector(".rail")?.classList.toggle("stuck", self.isActive),
+      });
+
+      // Charts are scrubbed rather than played: a reader who scrolls back up should see the series
+      // retreat, not sit finished. Rounded before it reaches React so a scroll costs ~50 renders,
+      // not one per frame.
+      const scrub = (selector: string, set: (n: number) => void) =>
+        ScrollTrigger.create({
+          trigger: selector,
+          start: "top 85%",
+          end: "top 38%",
+          onUpdate: (self) => set(Math.round(self.progress * 50) / 50),
+        });
+      scrub(".apy-chart", setApyProgress);
+      scrub(".fee-chart", setFeeProgress);
+
+      mm.add("(prefers-reduced-motion: reduce)", () => {
+        gsap.set(".cpu-enter", { opacity: 1 });
+        gsap.set(".cpu-clean", { opacity: 1 });
+        gsap.set(".cpu-screen", { opacity: 1 });
+        gsap.set(".reveal", { opacity: 1, y: 0 });
+        setApyProgress(1);
+        setFeeProgress(1);
+      });
+
+      mm.add("(prefers-reduced-motion: no-preference)", () => {
+        // --- the machine arrives -------------------------------------------------
+        // Slow, then a single bounce, then it resolves from halftone into the render. Three nested
+        // wrappers because the entrance, the idle bob and the scroll parallax all drive `y`, and
+        // one element cannot hold three owners of the same property.
+        const tl = gsap.timeline();
+        tl.fromTo(
+          ".cpu-enter",
+          { opacity: 0, scale: 0.84, y: 90, filter: "blur(6px)" },
+          { opacity: 1, scale: 1, y: 0, filter: "blur(0px)", duration: 2.1, ease: "power3.out" },
+        )
+          .to(".cpu-enter", { y: -26, duration: 0.42, ease: "power2.out" }, "-=0.45")
+          .to(".cpu-enter", { y: 0, duration: 1.1, ease: "elastic.out(1, 0.42)" })
+          .to(".cpu-clean", { opacity: 1, duration: 1.6, ease: "none" }, "-=1.5")
+          .to(".cpu-screen", { opacity: 1, duration: 0.5 }, "-=0.7")
+          .from(".hero h1 > span", { yPercent: 115, opacity: 0, duration: 0.9, stagger: 0.09, ease: "power3.out" }, 0.15)
+          .from(".hero-lede, .hero-cta, .hero-foot", { opacity: 0, y: 16, duration: 0.7, stagger: 0.1 }, 0.9);
+
+        gsap.to(".cpu-float", {
+          y: 14,
+          duration: 3.6,
+          ease: "sine.inOut",
+          repeat: -1,
+          yoyo: true,
+          delay: 3.4,
+        });
+
+        // --- it drifts as the page moves under it --------------------------------
+        gsap.to(".cpu-scroll", {
+          y: -150,
+          scale: 0.92,
+          ease: "none",
+          scrollTrigger: { trigger: ".hero", start: "top top", end: "bottom top", scrub: 0.4 },
+        });
+        gsap.to(".hero-bg img", {
+          yPercent: 12,
+          ease: "none",
+          scrollTrigger: { trigger: ".hero", start: "top top", end: "bottom top", scrub: 0.4 },
+        });
+
+        // --- everything else arrives on approach ---------------------------------
+        // The hidden state is set here rather than in CSS on purpose: if this script never runs,
+        // the page is still fully readable instead of being a column of invisible sections.
+        gsap.set(".reveal", { opacity: 0, y: 28 });
+        ScrollTrigger.batch(".reveal", {
+          start: "top 88%",
+          onEnter: (els) =>
+            gsap.to(els, { opacity: 1, y: 0, duration: 0.8, stagger: 0.09, ease: "power3.out", overwrite: true }),
+          onLeaveBack: (els) => gsap.to(els, { opacity: 0, y: 28, duration: 0.3, overwrite: true }),
+        });
+
+        // --- the surf: the page goes sideways ------------------------------------
+        const track = surf.current;
+        if (track) {
+          // Measured in a function so a resize recomputes it rather than pinning to a stale width.
+          const distance = () => Math.max(0, track.scrollWidth - window.innerWidth + 48);
+          const slide = gsap.to(track, {
+            x: () => -distance(),
+            ease: "none",
+            scrollTrigger: {
+              trigger: ".surf",
+              pin: true,
+              scrub: 0.5,
+              invalidateOnRefresh: true,
+              end: () => `+=${distance()}`,
+            },
+          });
+
+          // Each panel lights up as it passes the middle of the screen. `containerAnimation` is what
+          // lets a horizontal position act as a trigger at all — without it these fire on page load,
+          // because vertically they never move.
+          gsap.utils.toArray<HTMLElement>(".step").forEach((step) => {
+            ScrollTrigger.create({
+              trigger: step,
+              containerAnimation: slide,
+              start: "left 62%",
+              end: "right 38%",
+              onToggle: (self) => step.classList.toggle("hot", self.isActive),
+            });
+          });
+        }
+      });
+    },
+    { scope: root },
+  );
 
   return (
-    <div className="wrap">
-      <header className="top">
-        <div>
-          <div className="brand">
-            CrossPermit <span>one signature, every chain</span>
+    <div className="lp" ref={root}>
+      <header className="rail">
+        <div className="rail-in">
+          <div className="brandmark">
+            <HorseMatrix cols={13} size={22} />
+            CrossPermit<span style={{ color: "var(--accent)" }}>.</span>
           </div>
-          <div className="mono dim" style={{ marginTop: 6 }}>
-            {CROSS_PERMIT} · same address on {CHAINS.length} chains
-          </div>
+          <Link className="btn btn-action" href="/app">
+            Enter the desk
+          </Link>
         </div>
-        {/* AppKit's own element; it registers the connect button and the account modal. */}
-        <appkit-button balance="hide" />
       </header>
 
-      <nav className="tabs">
-        {TABS.map((t) => (
-          <button key={t} aria-selected={tab === t} onClick={() => setTab(t)}>
-            {t}
-          </button>
-        ))}
-      </nav>
-
-      {!address && viewOnly && (
-        <p className="note">
-          Read-only view of <span className="mono">{viewOnly}</span>. Connect a wallet to sign.
-        </p>
-      )}
-
-      {!WC_PROJECT_ID && (
-        <p className="note">
-          No <code>NEXT_PUBLIC_WC_PROJECT_ID</code> set, so WalletConnect is unavailable and only
-          injected wallets (MetaMask, Rabby) will connect. Everything else works. Get a project id at{" "}
-          <a href="https://dashboard.reown.com" target="_blank" rel="noreferrer">
-            dashboard.reown.com
-          </a>
-          .
-        </p>
-      )}
-
-      {tab === "permission" && (
-        <Permission
-          owner={address}
-          connected={isConnected}
-          onSubmitted={(id) => {
-            setIntentId(id);
-            setRefreshKey((k) => k + 1);
-            setTab("relayer");
-          }}
-        />
-      )}
-      {tab === "relayer" && <RelayerTab intentId={intentId} onPick={setIntentId} refreshKey={refreshKey} owner={subject} />}
-      {tab === "treasury" && <Treasury owner={subject} refreshKey={refreshKey} />}
-      {tab === "yield" && <Yield />}
-      {tab === "audit" && <Audit intentId={intentId} />}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------- permission
-
-function Permission({
-  owner,
-  connected,
-  onSubmitted,
-}: {
-  owner?: `0x${string}`;
-  connected: boolean;
-  onSubmitted: (id: string) => void;
-}) {
-  const [amount, setAmount] = useState("5");
-  const [hours, setHours] = useState("24");
-  const [lock, setLock] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const { signTypedDataAsync } = useSignTypedData();
-
-  // Built eagerly so the payload is on screen BEFORE the wallet asks. A signer who only ever sees
-  // an opaque merkleRoot in their wallet is trusting the page; showing the bundles first is the
-  // whole point of computing the leaves client-side.
-  const preview = useMemo(() => {
-    if (!owner) return null;
-    try {
-      const now = Math.floor(Date.now() / 1000);
-      const units = parseUnits(amount || "0", 6);
-      if (units === 0n) return null;
-      const expiry = now + Number(hours || "24") * 3600;
-      return prepareIntent({
-        crossPermit: CROSS_PERMIT,
-        owner,
-        now,
-        ttl: 3600,
-        chains: CHAINS.map((c) => ({
-          chainId: c.id,
-          permits: lock
-            ? [lockEntry(c.token, c.router)]
-            : [approveEntry(c.token, c.router, units, expiry)],
-        })),
-      });
-    } catch {
-      return null;
-    }
-  }, [owner, amount, hours, lock]);
-
-  async function submit() {
-    if (!preview || !owner) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const signature = await signTypedDataAsync(preview.typedData as never);
-      const { status, body } = await postIntent(toWire({ ...preview.intent, signature }));
-      if (status >= 400) throw new Error(`${body.code ?? status}: ${body.error ?? "rejected"}`);
-      onSubmitted(String(body.intentId));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <>
-      <div className="panel">
-        <h2>Build one permission for {CHAINS.length} chains</h2>
-        <p className="sub">
-          One EIP-712 message over a merkle root of per-chain bundles. Sign once; the relayer submits
-          every leg.
-        </p>
-
-        <div className="grid">
-          <label className="field">
-            <span className="lbl">Amount per chain (6dp)</span>
-            <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" />
-          </label>
-          <label className="field">
-            <span className="lbl">Allowance expires in (hours)</span>
-            <input value={hours} onChange={(e) => setHours(e.target.value)} inputMode="numeric" />
-          </label>
-          <label className="field">
-            <span className="lbl">Mode</span>
-            <select value={lock ? "lock" : "approve"} onChange={(e) => setLock(e.target.value === "lock")}>
-              <option value="approve">Approve the router</option>
-              <option value="lock">LOCK the router (cross-chain kill switch)</option>
-            </select>
-          </label>
+      {/* ----------------------------------------------------------- hero */}
+      <section className="hero">
+        <div className="hero-bg">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/moss.jpg" alt="" />
+        </div>
+        <div className="hero-grain">
+          <DitherWash from="top" color={PAPER} strength={1} />
         </div>
 
-        <div className="row">
-          <button className="action" disabled={!connected || !preview || busy} onClick={submit}>
-            {busy ? "signing…" : `Sign once, ${CHAINS.length} chains`}
-          </button>
-          {!connected && <span className="muted">connect a wallet to sign</span>}
-        </div>
-        {error && <div className="err">{error}</div>}
-      </div>
-
-      <div className="panel">
-        <h2>What you are about to sign</h2>
-        <p className="sub">
-          Every leaf is computed in this browser and folded into the root below. Nothing here came
-          from an RPC — a leaf that did would let a hostile endpoint choose what you sign.
-        </p>
-
-        {!preview ? (
-          <p className="muted">Connect a wallet and enter an amount.</p>
-        ) : (
-          <>
-            <div className="grid" style={{ marginBottom: 14 }}>
-              <div className="stat">
-                <div className="k">merkle root</div>
-                <div className="v">{short(preview.intent.root, 10)}</div>
-                <div className="n">signed once, valid on every chain</div>
-              </div>
-              <div className="stat">
-                <div className="k">salt</div>
-                <div className="v">{short(preview.intent.salt, 10)}</div>
-                <div className="n">replay protection, retractable</div>
-              </div>
-              <div className="stat">
-                <div className="k">signature deadline</div>
-                <div className="v">{new Date(preview.intent.deadline * 1000).toLocaleTimeString()}</div>
-                <div className="n">the relayer refuses inside 60s of this</div>
-              </div>
-            </div>
-
-            <div className="scroll">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Chain</th>
-                    <th>Action</th>
-                    <th>Spender</th>
-                    <th>Amount</th>
-                    <th>Proof</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {preview.intent.legs.map((leg) => {
-                    const c = chainById(leg.chainId)!;
-                    const p = leg.bundle.permits[0]!;
-                    return (
-                      <tr key={leg.chainId}>
-                        <td>
-                          {c.name} <span className="dim mono">{leg.chainId}</span>
-                        </td>
-                        <td>{p.modeOrExpiration === 2 ? <span className="tag bad">LOCK</span> : <span className="tag ok">APPROVE</span>}</td>
-                        <td className="mono">{short(p.account)}</td>
-                        <td className="mono">{p.modeOrExpiration === 2 ? "—" : formatUnits(p.amountDelta, 6)}</td>
-                        <td className="mono dim">{leg.proof.length} node{leg.proof.length === 1 ? "" : "s"}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-            <p className="note">
-              The last chain carries a one-node proof because the tree leans left — order the chains
-              cheapest first so the dearest one gets the smallest calldata.
+        <div className="hero-in">
+          <div style={{ display: "grid", gap: 28 }}>
+            <h1>
+              <span style={{ display: "block", overflow: "hidden" }}>
+                <span style={{ display: "block" }}>Run a fund</span>
+              </span>
+              <span style={{ display: "block", overflow: "hidden" }}>
+                <span style={{ display: "block" }}>
+                  across <u>every chain</u>.
+                </span>
+              </span>
+              <span style={{ display: "block", overflow: "hidden" }}>
+                <span style={{ display: "block" }}>
+                  Your clients sign once<b>.</b>
+                </span>
+              </span>
+            </h1>
+            <p className="lede hero-lede">
+              Add a client, send them a link, and one signature gives your desk a bounded, revocable
+              mandate on every chain you trade. Then allocate it — Uniswap v4, Aave v4, tokenized
+              equities — without asking them again.
             </p>
-          </>
-        )}
-      </div>
-    </>
-  );
-}
+            <div className="hero-cta" style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+              <Link className="btn btn-action" href="/app">
+                Open the desk
+              </Link>
+              <a className="btn btn-ghost" href="#how">
+                How it works
+              </a>
+            </div>
+          </div>
 
-// ---------------------------------------------------------------- relayer
+          <div className="cpu-scroll">
+            <div className="cpu-enter">
+              <div className="cpu-float">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/apple2-dither.png" alt="" />
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img className="cpu-clean" src="/apple2.png" alt="An Apple II with two disk drives" />
+                <div className="cpu-screen" aria-hidden="true">
+                  ]CROSSPERMIT V1
+                  <br />
+                  ]LOAD MANDATE
+                  <br />
+                  &nbsp;OWNER&nbsp;&nbsp;0x9A3…C4
+                  <br />
+                  &nbsp;CHAINS&nbsp;&nbsp;3
+                  <br />
+                  &nbsp;ROOT&nbsp;&nbsp;&nbsp;&nbsp;0x4CE8…A5E4
+                  <br />
+                  ]SIGN
+                  <br />
+                  &nbsp;<i>OK — 3 CHAINS ARMED</i>
+                  <br />]<span className="cursor" />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
 
-function RelayerTab({
-  intentId,
-  onPick,
-  refreshKey,
-  owner,
-}: {
-  intentId: string | null;
-  onPick: (id: string) => void;
-  refreshKey: number;
-  owner?: `0x${string}`;
-}) {
-  const chains = useRelayerChains();
-  const { status, connected } = useIntentStream(intentId);
-  const recent = useRecentIntents(refreshKey);
-  const quota = useQuota(owner, refreshKey);
+        <div className="hero-foot">
+          <div className="cue">
+            <i />
+            <span className="micro">Scroll</span>
+          </div>
+          <div className="micro" style={{ textAlign: "right" }}>
+            {CROSS_PERMIT}
+            <br />
+            one address · {CHAINS.length} chains · one signature
+          </div>
+        </div>
+      </section>
 
-  return (
-    <>
-      <div className="panel">
-        <h2>Relayer</h2>
-        <p className="sub">
-          {RELAYER_URL} — one POST covers every chain. It can pay gas and refuse to submit; it cannot
-          change who receives anything.
-        </p>
+      {/* ----------------------------------------------------------- problem */}
+      <section className="sec" id="how">
+        <div className="wrapx">
+          <div className="sec-head reveal">
+            <span className="label">01 / The cost of a mandate today</span>
+            <h2>
+              Four chains.
+              <br />
+              Four signatures. Four chances to be wrong.
+            </h2>
+          </div>
 
-        {chains === null && <p className="muted">connecting…</p>}
-        {chains === false && (
-          <p className="err">
-            unreachable. Start it: <span className="mono">bun run apps/relayer/src/server.ts</span>
+          <div className="grid g3">
+            <div className="mod reveal">
+              <span className="label">Approval surface</span>
+              <div className="figure" style={{ marginTop: 12 }}>
+                4×
+              </div>
+              <p className="lede" style={{ fontSize: 15, marginTop: 12 }}>
+                Every chain is its own wallet session, its own approval, its own line in the audit
+                log — and its own opportunity to sign the wrong spender.
+              </p>
+            </div>
+            <div className="mod reveal">
+              <span className="label">Revocation</span>
+              <div className="figure" style={{ marginTop: 12 }}>
+                4×
+              </div>
+              <p className="lede" style={{ fontSize: 15, marginTop: 12 }}>
+                A compromised counterparty means four transactions, in four gas markets, before the
+                exposure is actually closed.
+              </p>
+            </div>
+            <div className="mod reveal" style={{ background: "var(--accent)", borderColor: "var(--accent)" }}>
+              <span className="label" style={{ color: "#16120f", opacity: 0.7 }}>
+                With CrossPermit
+              </span>
+              <div className="figure" style={{ marginTop: 12, color: "#16120f" }}>
+                1×
+              </div>
+              <p className="lede" style={{ fontSize: 15, marginTop: 12, color: "#16120f" }}>
+                One EIP-712 message over a merkle root of per-chain bundles. Grant everywhere at
+                once. Revoke everywhere at once.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ----------------------------------------------------------- fan-out */}
+      <section className="sec">
+        <div className="wrapx">
+          <div className="sec-head reveal">
+            <span className="label">02 / One signature, three chains</span>
+            <h2>The same contract, at the same address, everywhere.</h2>
+            <p className="lede">
+              Deployed through the ERC-2470 singleton factory, so identical init code and an
+              identical salt give an identical address. That is what makes a signature portable: the
+              EIP-712 domain pins <span className="mono">chainId = 1</span> but still names the
+              verifying contract.
+            </p>
+          </div>
+
+          <div className="grid g3" style={{ marginBottom: 16 }}>
+            {CHAINS.map((c) => (
+              <div className="chain reveal" key={c.id}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <h3>{c.name}</h3>
+                  <span className="badge badge-out">{c.id}</span>
+                </div>
+                <span className="label">Universal Router · permit2 := CrossPermit</span>
+                <span className="addr">{c.router}</span>
+                <span className="badge badge-live" style={{ justifySelf: "start" }}>
+                  live
+                </span>
+              </div>
+            ))}
+          </div>
+
+          <div className="terminal reveal">
+            <div className="dot-field">
+              <HorseMatrix cols={24} tone="light" />
+            </div>
+            <span className="label">Read live off all three deployments</span>
+            <div style={{ marginTop: 16, display: "grid", gap: 2 }}>
+              <div className="kv">
+                <span>DOMAIN_SEPARATOR()</span>
+                <span className="mono" style={{ wordBreak: "break-all" }}>
+                  {DOMAIN_SEPARATOR}
+                </span>
+              </div>
+              <div className="kv">
+                <span>Byte-identical on</span>
+                <span>Ethereum · Base · Optimism Sepolia</span>
+              </div>
+              <div className="kv">
+                <span>Lifecycle</span>
+                <span>8 stages · 72 checks · 0 failed</span>
+              </div>
+            </div>
+            <p className="lede" style={{ fontSize: 14, marginTop: 20, color: "#c9c6c1" }}>
+              Optimism Sepolia was added after the fact. The same init code and the same salt put
+              CrossPermit at the same address on a chain it had never touched, and its domain
+              separator came back identical without any coordination.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* ----------------------------------------------------------- the surf */}
+      <section className="surf">
+        <div className="surf-in">
+          <div className="surf-head">
+            <span className="label">03 / From cold contact to allocated capital</span>
+            <h2 style={{ marginTop: 14 }}>Four moves. One of them is theirs.</h2>
+          </div>
+          <div className="surf-track" ref={surf}>
+            <article className="step">
+              <div className="n">01</div>
+              <h3>Add the client</h3>
+              <p>
+                Name, mandate size, expiry, and which chains the desk is allowed to operate on. No
+                wallet needed yet — nothing has been asked of them.
+              </p>
+              <div className="wire">
+                <span>CLIENT</span>
+                <b>Meridian Capital · USDC · 3 chains</b>
+                <span>CAP / EXPIRY</span>
+                <b>250,000 · 720h</b>
+              </div>
+            </article>
+
+            <article className="step">
+              <div className="n">02</div>
+              <h3>Send the link</h3>
+              <p>
+                The desk generates a one-client invitation. It carries the mandate, not a request for
+                keys, and it can be revoked before it is ever opened.
+              </p>
+              <div className="wire">
+                <span>INVITATION</span>
+                <b>/c/9f4c1a2e…b7</b>
+                <span>STATE</span>
+                <b>awaiting signature</b>
+              </div>
+            </article>
+
+            <article className="step">
+              <div className="n">03</div>
+              <h3>They sign once</h3>
+              <p>
+                Their wallet opens on a page that has already rendered every per-chain bundle in
+                plain language. One signature arms the whole mandate.
+              </p>
+              <div className="wire">
+                <span>SIGNED</span>
+                <b>1 message → 3 chains</b>
+                <span>THEY KEEP</span>
+                <b>custody, and the right to revoke</b>
+              </div>
+            </article>
+
+            <article className="step">
+              <div className="n">04</div>
+              <h3>You allocate</h3>
+              <p>
+                Their capital shows up on the desk with its bounds attached. Route it into a Uniswap
+                v4 pool, an Aave v4 spoke, or a tokenized equity — inside the mandate, never past it.
+              </p>
+              <div className="wire">
+                <span>DESK</span>
+                <b>v4 pools · Aave v4 · NVDAon</b>
+                <span>BOUND BY</span>
+                <b>the allowance they signed</b>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      {/* ----------------------------------------------------------- strategies */}
+      <section className="sec">
+        <div className="wrapx">
+          <div className="sec-head reveal">
+            <span className="label">04 / What the desk can do with it</span>
+            <h2>Yield, liquidity, and equities — against live venues.</h2>
+          </div>
+
+          <div className="grid g2">
+            <div className="mod reveal apy-chart">
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                <div>
+                  <span className="label">Aave v4 · Core Hub / MAIN Spoke</span>
+                  <h3 style={{ marginTop: 8 }}>Supply APY</h3>
+                </div>
+                <span className="badge badge-out">mainnet fork</span>
+              </div>
+              <div className="chartbox tall">
+                <DitherArea values={APY_SERIES} variant="gradient" bloom="aura" progress={apyProgress} />
+              </div>
+              <div style={{ marginTop: 16, display: "grid", gap: 2 }}>
+                <div className="kv">
+                  <span>Supply APR</span>
+                  <span>3.976%</span>
+                </div>
+                <div className="kv">
+                  <span>Supply APY</span>
+                  <span>4.056%</span>
+                </div>
+                <div className="kv">
+                  <span>Utilisation</span>
+                  <span>90.16%</span>
+                </div>
+                <div className="kv">
+                  <span>10,000 USDC · 30 days</span>
+                  <span>10,032.65 USDC</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="mod reveal fee-chart">
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                <div>
+                  <span className="label">Uniswap v4 · PoolManager</span>
+                  <h3 style={{ marginTop: 8 }}>Fee capture</h3>
+                </div>
+                <span className="badge badge-live">live testnets</span>
+              </div>
+              <div className="chartbox tall">
+                <DitherBars values={FEE_SERIES} variant="solid" hotIndex={FEE_SERIES.length - 1} progress={feeProgress} />
+              </div>
+              <div style={{ marginTop: 16, display: "grid", gap: 2 }}>
+                <div className="kv">
+                  <span>Pool fee</span>
+                  <span>0.30%</span>
+                </div>
+                <div className="kv">
+                  <span>1,000,000 in</span>
+                  <span>996,999 out</span>
+                </div>
+                <div className="kv">
+                  <span>Settled through</span>
+                  <span>V4_SWAP → SETTLE_ALL → transferFrom</span>
+                </div>
+                <div className="kv">
+                  <span>Router ERC-20 approval</span>
+                  <span>0 — it spent the mandate</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid g3" style={{ marginTop: 16 }}>
+            <div className="strat reveal">
+              <span className="label">Liquidity</span>
+              <h3>Uniswap v4 pools</h3>
+              <div className="row">
+                <span className="n up">3</span>
+                <span className="micro">seeded pools, one per chain</span>
+              </div>
+              <p className="lede" style={{ fontSize: 14 }}>
+                A real PoolManager on each chain, paid out of the client&rsquo;s allowance on the same
+                path any dApp uses.
+              </p>
+            </div>
+            <div className="strat reveal">
+              <span className="label">Yield</span>
+              <h3>Aave v4 spokes</h3>
+              <div className="row">
+                <span className="n up">4.06%</span>
+                <span className="micro">APY, MAIN spoke</span>
+              </div>
+              <p className="lede" style={{ fontSize: 14 }}>
+                Hub-and-spoke: utilisation is read at the Hub, where the liquidity actually sits, not
+                at the market.
+              </p>
+            </div>
+            <div className="strat reveal">
+              <span className="label">Equities</span>
+              <h3>Tokenized desk</h3>
+              <div className="row">
+                <span className="n">NVDAon</span>
+                <span className="micro">Ondo, read live</span>
+              </div>
+              <p className="lede" style={{ fontSize: 14 }}>
+                Every fill bounded three ways: the caller&rsquo;s minimum out, an oracle staleness
+                window, and a deviation band.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ----------------------------------------------------------- control */}
+      <section className="sec">
+        <div className="wrapx">
+          <div className="sec-head reveal">
+            <span className="label">05 / What the client keeps</span>
+            <h2>A mandate, not custody.</h2>
+          </div>
+          <div className="grid g4">
+            {[
+              ["Bounded", "The amount, the spender and the expiry all live inside the message they signed. Nothing can raise them after the fact."],
+              ["Revocable", "One signature LOCKs the desk on every chain at once — proved by a spend that then reverts, not by a flag."],
+              ["Non-custodial", "The relayer pays gas and nothing else. It cannot change a recipient, an amount, or a spender."],
+              ["Audited", "Every grant, spend and revocation lands in the control-plane event ledger, alongside the chain itself."],
+            ].map(([title, body]) => (
+              <div className="mod-flat reveal" key={title}>
+                <h3>{title}</h3>
+                <p className="lede" style={{ fontSize: 14, marginTop: 10 }}>
+                  {body}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ----------------------------------------------------------- close */}
+      <section className="close">
+        <div className="wrapx" style={{ display: "grid", justifyItems: "center", gap: 24 }}>
+          <HorseMatrix cols={20} size={150} />
+          <h2 style={{ maxWidth: "14ch" }}>Open the desk.</h2>
+          <p className="lede" style={{ textAlign: "center" }}>
+            Three testnets are live now. Add a client, send the link, and watch one signature arm
+            every chain you trade.
           </p>
-        )}
-        {chains && (
-          <div className="scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th>Chain</th>
-                  <th>Signer</th>
-                  <th>Custody</th>
-                  <th>Audit trail</th>
-                </tr>
-              </thead>
-              <tbody>
-                {chains.chains.map((c) => (
-                  <tr key={c.chainId}>
-                    <td>
-                      {c.name} <span className="dim mono">{c.chainId}</span>
-                    </td>
-                    <td className="mono">{short(c.signer)}</td>
-                    <td>
-                      <span className={`tag ${c.custody === "local" ? "warn" : "ok"}`}>{c.custody}</span>
-                    </td>
-                    <td>
-                      {c.auditTrail === "multibaas" ? (
-                        <span className="tag ok">multibaas</span>
-                      ) : (
-                        <span className="tag">none</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", justifyContent: "center" }}>
+            <Link className="btn btn-action" href="/app">
+              Enter the desk
+            </Link>
+            <a
+              className="btn btn-ghost"
+              href="https://github.com/sairammr/crosspermit"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Read the code
+            </a>
           </div>
-        )}
-
-        {quota && (
-          <p className="note">
-            Your remaining quota this window: {quota.intents} intents,{" "}
-            {(Number(quota.gasWei) / 1e18).toFixed(4)} ETH of gas, resetting in{" "}
-            {Math.ceil(quota.resetsInMs / 1000)}s.
-          </p>
-        )}
-      </div>
-
-      <div className="panel">
-        <h2>
-          Live fan-out {connected && <span className="tag ok">streaming</span>}
-        </h2>
-        <p className="sub">
-          {intentId ? <span className="mono">{intentId}</span> : "sign an intent, or pick one below"}
-        </p>
-        {status ? <LegTable status={status} /> : <p className="muted">nothing in flight.</p>}
-      </div>
-
-      <div className="panel">
-        <h2>Recent intents</h2>
-        <p className="sub">Every signature this relayer has fanned out.</p>
-        {recent.length === 0 ? (
-          <p className="muted">none yet.</p>
-        ) : (
-          <div className="scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th>Intent</th>
-                  <th>Owner</th>
-                  <th>Root</th>
-                  <th>When</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {recent.map((i) => (
-                  <tr key={i.intentId}>
-                    <td className="mono">{short(i.intentId)}</td>
-                    <td className="mono">{short(i.owner)}</td>
-                    <td className="mono dim">{short(i.root)}</td>
-                    <td className="muted">{new Date(i.createdAt).toLocaleTimeString()}</td>
-                    <td>
-                      <button className="ghost" onClick={() => onPick(i.intentId)}>
-                        view
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    </>
-  );
-}
-
-function LegTable({ status }: { status: IntentStatus }) {
-  const tone = (s: string) => (s === "confirmed" ? "ok" : s === "failed" ? "bad" : "warn");
-  return (
-    <div className="scroll">
-      <table>
-        <thead>
-          <tr>
-            <th>Chain</th>
-            <th>Status</th>
-            <th>Transaction</th>
-            <th>Detail</th>
-          </tr>
-        </thead>
-        <tbody>
-          {status.legs.map((leg) => {
-            const c = chainById(leg.chainId);
-            return (
-              <tr key={leg.chainId}>
-                <td>
-                  {c?.name ?? leg.chainId} <span className="dim mono">{leg.chainId}</span>
-                </td>
-                <td>
-                  <span className={`tag ${tone(leg.status)}`}>{leg.status}</span>
-                </td>
-                <td className="mono">
-                  {leg.txHash ? (
-                    <a href={`${c?.explorer}/tx/${leg.txHash}`} target="_blank" rel="noreferrer">
-                      {short(leg.txHash)}
-                    </a>
-                  ) : (
-                    <span className="dim">—</span>
-                  )}
-                </td>
-                <td className="muted" style={{ maxWidth: 380 }}>
-                  {leg.error ?? (leg.status === "confirmed" ? "applied" : "")}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------- treasury
-
-function Treasury({ owner, refreshKey }: { owner?: `0x${string}`; refreshKey: number }) {
-  const view = useTreasury(owner, refreshKey);
-
-  return (
-    <div className="panel">
-      <h2>Outstanding authority</h2>
-      <p className="sub">
-        What this account has authorised, to whom, on which chain — decoded from indexed{" "}
-        <span className="mono">Permit</span> events in the MultiBaas control plane, not read from
-        chain storage. Storage answers what an allowance is now; an auditor asks how it got there.
-      </p>
-
-      {!owner && <p className="muted">connect a wallet.</p>}
-      {owner && view === null && <p className="muted">reading the control plane…</p>}
-      {owner && view === false && (
-        <p className="err">relayer unreachable — start it to read the ledger.</p>
-      )}
-
-      {owner && view && typeof view === "object" && (
-        <>
-          {view.error && <p className="err">{view.error}</p>}
-
-          {view.rows.length === 0 ? (
-            <p className="muted">
-              No indexed authority for this account yet. Indexing starts at the block CrossPermit was
-              registered, so activity from before that is not shown.
-            </p>
-          ) : (
-            <div className="scroll">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Chain</th>
-                    <th>Token</th>
-                    <th>Spender</th>
-                    <th>Amount</th>
-                    <th>State</th>
-                    <th>Signed at</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {view.rows.map((r) => (
-                    <tr key={`${r.chainId}:${r.token}:${r.spender}`}>
-                      <td>
-                        {r.chainName} <span className="dim mono">{r.chainId}</span>
-                      </td>
-                      <td className="mono">{short(r.token)}</td>
-                      <td className="mono">{short(r.spender)}</td>
-                      <td className="mono">{(Number(r.amount) / 1e6).toLocaleString()}</td>
-                      <td>
-                        <span className={`tag ${r.state === "locked" ? "bad" : r.state === "active" ? "ok" : "warn"}`}>
-                          {r.state}
-                        </span>
-                      </td>
-                      <td className="muted">
-                        {r.explorer ? (
-                          <a href={r.explorer} target="_blank" rel="noreferrer">
-                            {new Date(r.timestamp * 1000).toLocaleString()}
-                          </a>
-                        ) : (
-                          new Date(r.timestamp * 1000).toLocaleString()
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          <div className="grid" style={{ marginTop: 14 }}>
-            <div className="stat">
-              <div className="k">chains with an audit trail</div>
-              <div className="v">{view.covered.length}</div>
-              <div className="n">{view.covered.join(", ") || "none"}</div>
-            </div>
-            <div className="stat">
-              <div className="k">chains without one</div>
-              <div className="v">{view.uncovered.length}</div>
-              <div className="n">{view.uncovered.join(", ") || "none"}</div>
-            </div>
-          </div>
-
-          {view.uncovered.length > 0 && (
-            <p className="note">
-              Chain{view.uncovered.length > 1 ? "s" : ""} {view.uncovered.join(", ")} ha
-              {view.uncovered.length > 1 ? "ve" : "s"} no MultiBaas deployment, so nothing indexes
-              {view.uncovered.length > 1 ? " them" : " it"} and authority there will never appear in
-              this table. That is a gap in the record, not an absence of exposure — a free-tier
-              account gets one deployment per network.
-            </p>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------- yield
-
-function Yield() {
-  // Measured live on mainnet by contracts/test/TreasuryFork.t.sol. Shown as recorded figures with
-  // their provenance, not as a live feed this page is polling — claiming live would be a lie.
-  const rows = [
-    { k: "Supply APR", v: "3.976%", n: "derived: drawnRate x utilisation x (1 - liquidityFee)" },
-    { k: "Supply APY", v: "4.056%", n: "APR compounded per second; always at or above APR" },
-    { k: "Utilisation", v: "90.16%", n: "measured at the Hub, where v4 liquidity actually lives" },
-    { k: "Round trip", v: "+32.65 USDC", n: "10 000 USDC supplied, withdrawn after 30 days" },
-  ];
-
-  return (
-    <>
-      <div className="panel">
-        <h2>Aave v4 — Core Hub, MAIN Spoke</h2>
-        <p className="sub">
-          Principal is pulled through CrossPermit, so deploying idle cash rides the same single
-          signature as everything else in the intent.
-        </p>
-        <div className="grid">
-          {rows.map((r) => (
-            <div className="stat" key={r.k}>
-              <div className="k">{r.k}</div>
-              <div className="v">{r.v}</div>
-              <div className="n">{r.n}</div>
-            </div>
-          ))}
         </div>
-        <p className="note">
-          Figures recorded from <span className="mono">FORK=1 forge test --match-contract TreasuryFork</span>{" "}
-          against live Ethereum mainnet. APR and APY are separate numbers on purpose: the Hub exposes
-          only a borrow rate, so supply APR is derived, and a treasury that reports a borrow rate as
-          its own yield overstates its returns.
-        </p>
+      </section>
+
+      <div className="wrapx">
+        <footer className="foot">
+          <span className="micro">CrossPermit · one signature, every chain</span>
+          <span className="micro">Testnet only. Never fund these addresses with mainnet value.</span>
+        </footer>
       </div>
-
-      <div className="panel">
-        <h2>Tokenized equities</h2>
-        <p className="sub">NVIDIA and peers, funded by the same signature.</p>
-        <div className="scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>Instrument</th>
-                <th>Token</th>
-                <th>Venue</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>NVIDIA (Ondo Tokenized)</td>
-                <td className="mono">
-                  <a
-                    href="https://etherscan.io/token/0x2D1F7226Bd1F780AF6B9A49DCC0aE00E8Df4bDEE"
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    NVDAon
-                  </a>
-                </td>
-                <td className="muted">issuer mint / redeem</td>
-                <td>
-                  <span className="tag warn">venue adapter pending</span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <p className="note">
-          The desk&apos;s guards are proved against the real token: compliance gate deny-by-default,
-          oracle staleness bound, and a price-deviation band. The venue itself is still a mock,
-          because NVDAon&apos;s on-chain route is the issuer&apos;s gated mint/redeem window rather
-          than an AMM anyone can trade against. Stated plainly rather than demoed as if it were live.
-        </p>
-      </div>
-    </>
-  );
-}
-
-// ---------------------------------------------------------------- audit
-
-function Audit({ intentId }: { intentId: string | null }) {
-  const { status } = useIntentStream(intentId);
-
-  return (
-    <div className="panel">
-      <h2>One signature, every record it produced</h2>
-      <p className="sub">
-        The screen a risk committee asks for: a single authorisation expanded into the N on-chain
-        transactions it caused, instead of N separate approval logs to reconcile.
-      </p>
-
-      {!status ? (
-        <p className="muted">sign an intent, or pick one from the relayer tab.</p>
-      ) : (
-        <>
-          <div className="grid" style={{ marginBottom: 14 }}>
-            <div className="stat">
-              <div className="k">intent</div>
-              <div className="v">{short(status.intentId, 8)}</div>
-              <div className="n">keyed on owner, salt and root</div>
-            </div>
-            <div className="stat">
-              <div className="k">signed root</div>
-              <div className="v">{short(status.root, 8)}</div>
-              <div className="n">one signature covered every leg</div>
-            </div>
-            <div className="stat">
-              <div className="k">outcome</div>
-              <div className="v">{status.done ? (status.ok ? "complete" : "partial") : "in flight"}</div>
-              <div className="n">
-                {status.legs.filter((l) => l.status === "confirmed").length}/{status.legs.length} chains confirmed
-              </div>
-            </div>
-          </div>
-          <LegTable status={status} />
-        </>
-      )}
     </div>
   );
 }

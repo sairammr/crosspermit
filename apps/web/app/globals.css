@@ -1,23 +1,25 @@
 :root {
-  color-scheme: dark;
+  /* TradeFi Treasury palette. The names stayed generic on purpose when this file was written, so
+     the whole dashboard re-themes by changing values here rather than by touching every rule. */
+  color-scheme: light;
 
-  --bg: #0a0b0d;
-  --panel: #111316;
-  --panel-2: #16191d;
-  --line: #22262c;
-  --line-soft: #1a1e23;
-  --text: #e6e9ee;
-  --muted: #8b94a3;
-  --dim: #5d6673;
+  --bg: #f2f1ee;
+  --panel: #fbfaf9;
+  --panel-2: #e8e7e3;
+  --line: #d8cfca;
+  --line-soft: #e3e0db;
+  --text: #171717;
+  --muted: #52514d;
+  --dim: #66645f;
 
-  --accent: #6ee7a8;
-  --accent-dim: #2f6b4d;
-  --warn: #f0b429;
-  --bad: #f2777a;
-  --link: #7aa2f7;
+  --accent: #f45108;
+  --accent-dim: #a83804;
+  --warn: #a83804;
+  --bad: #c41618;
+  --link: #a83804;
 
-  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
-  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+  --mono: var(--font-mono), ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  --sans: var(--font-ui), "Helvetica Neue", Helvetica, Arial, sans-serif;
 }
 
 * {
@@ -30,6 +32,7 @@ body {
   color: var(--text);
   font-family: var(--sans);
   font-size: 14px;
+  font-variant-numeric: tabular-nums;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
@@ -193,11 +196,27 @@ td {
 }
 .tag.warn {
   color: var(--warn);
-  border-color: #6b5320;
+  border-color: var(--warn);
 }
 .tag.bad {
   color: var(--bad);
-  border-color: #6b2f31;
+  border-color: var(--bad);
+}
+
+/* Mandate lifecycle. `active` deliberately reuses the accent so a live client reads as the one
+   state on this screen that carries real exposure. */
+.tag.active {
+  color: var(--accent-dim);
+  border-color: var(--accent);
+}
+.tag.awaiting {
+  color: var(--dim);
+  border-style: dashed;
+}
+.tag.revoked {
+  color: var(--bad);
+  border-color: var(--bad);
+  text-decoration: line-through;
 }
 
 .stat {

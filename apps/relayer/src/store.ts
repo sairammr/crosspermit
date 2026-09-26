@@ -125,6 +125,17 @@ export class Store {
       .all(Date.now() - olderThanMs) as LegRow[];
   }
 
+  /**
+   * The underlying handle, so sibling tables live in the same file and the same WAL.
+   *
+   * A second `Database` on the same path would work, but then a mandate and the intent that
+   * answered it could be committed by different connections — and the pair either both exist or
+   * the desk is showing a client a link to authority nobody recorded.
+   */
+  get database(): Database {
+    return this.db;
+  }
+
   recent(limit = 50): IntentRow[] {
     return this.db.query("SELECT * FROM intents ORDER BY createdAt DESC LIMIT ?").all(limit) as IntentRow[];
   }

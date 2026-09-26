@@ -1,0 +1,673 @@
+/* ============================================================
+   LANDING — TradeFi Treasury design system, applied.
+   Scoped under .lp so the dashboard keeps its own layout rules.
+   ============================================================ */
+
+.lp {
+  --surface-3: #d8cfca;
+  --mark-grey: #777671;
+  --on-ink: #f2f1ee;
+  --signal-wash: #fde7da;
+  --track-label: 0.08em;
+  --maxw: 1280px;
+
+  color: var(--text);
+  background: var(--bg);
+  overflow-x: clip;
+}
+
+.lp .dcanvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.lp .wrapx {
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding-inline: 24px;
+}
+
+.lp .label {
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.35;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.lp .micro {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.lp h2 {
+  font-size: clamp(30px, 4.4vw, 56px);
+  line-height: 1.02;
+  letter-spacing: -0.03em;
+  font-weight: 800;
+  margin: 0;
+}
+
+.lp h3 {
+  font-size: 20px;
+  line-height: 1.15;
+  letter-spacing: -0.015em;
+  font-weight: 700;
+  margin: 0;
+}
+
+.lp p {
+  margin: 0;
+}
+
+.lp .lede {
+  font-size: 18px;
+  line-height: 1.5;
+  color: var(--muted);
+  max-width: 56ch;
+}
+
+/* ---------- top rail ---------- */
+
+.lp .rail {
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 40;
+  border-bottom: 1px solid transparent;
+  transition: background 200ms ease, border-color 200ms ease;
+}
+.lp .rail.stuck {
+  background: color-mix(in srgb, var(--bg) 90%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom-color: var(--line);
+}
+.lp .rail-in {
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.lp .brandmark {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  font-size: 18px;
+}
+.lp .brandmark svg {
+  display: block;
+}
+
+/* ---------- buttons ---------- */
+
+.lp .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 500;
+  height: 44px;
+  padding: 0 20px;
+  border-radius: 4px;
+  border: 1px solid var(--text);
+  background: var(--text);
+  color: var(--bg);
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 140ms cubic-bezier(0.2, 0.6, 0.3, 1), border-color 140ms, transform 140ms, color 140ms;
+}
+.lp .btn:hover {
+  background: #353532;
+  border-color: #353532;
+  text-decoration: none;
+}
+.lp .btn:active {
+  transform: translateY(1px);
+}
+.lp .btn-action {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #16120f;
+}
+.lp .btn-action:hover {
+  background: #ff6a2a;
+  border-color: #ff6a2a;
+}
+/* A disabled call to action has to stop looking like a call to action. Without this the sign
+   button stays full accent while it is refusing to do anything. */
+.lp .btn[disabled],
+.lp .btn[disabled]:hover {
+  background: var(--panel-2);
+  border-color: var(--line);
+  color: var(--dim);
+  cursor: not-allowed;
+  transform: none;
+}
+.lp .btn-ghost {
+  background: transparent;
+  color: var(--muted);
+  border-color: var(--line);
+}
+.lp .btn-ghost:hover {
+  background: var(--panel-2);
+  color: var(--text);
+  border-color: var(--dim);
+}
+
+/* ---------- hero ---------- */
+
+.lp .hero {
+  position: relative;
+  min-height: 100svh;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  isolation: isolate;
+  overflow: hidden;
+}
+.lp .hero-bg {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background: var(--bg);
+}
+.lp .hero-bg img {
+  position: absolute;
+  inset: auto 0 0 0;
+  width: 100%;
+  height: 38%;
+  object-fit: cover;
+  /* The photograph is mostly its own white sky; anchoring to the bottom is what keeps the moss
+     in frame instead of cropping to an empty rectangle. */
+  object-position: center bottom;
+  display: block;
+}
+/* The photograph's own sky is pure white and the page is paper; left alone they meet on a visible
+   line. A short gradient closes the colour gap and the dither strip on top of it turns what is
+   left of the join into grain. */
+.lp .hero-bg::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 38% 0;
+  height: 13%;
+  background: linear-gradient(to bottom, var(--bg), color-mix(in srgb, var(--bg) 0%, transparent));
+}
+.lp .hero-grain {
+  position: absolute;
+  inset: auto 0 38% 0;
+  height: 14%;
+  z-index: -1;
+}
+
+.lp .hero-in {
+  position: relative;
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: 92px 24px 0;
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+  gap: 32px;
+  align-items: start;
+}
+.lp .hero h1 {
+  margin: 0;
+  font-size: clamp(36px, 5vw, 68px);
+  line-height: 0.96;
+  letter-spacing: -0.035em;
+  font-weight: 800;
+}
+.lp .hero h1 u {
+  text-decoration: none;
+  box-shadow: inset 0 -0.09em 0 var(--accent);
+}
+.lp .hero h1 b {
+  color: var(--accent);
+}
+
+/* the floating machine */
+.lp .cpu-scroll {
+  position: relative;
+  justify-self: center;
+  width: min(100%, 560px);
+  margin-top: -18px;
+}
+.lp .cpu-enter {
+  will-change: transform, opacity;
+}
+.lp .cpu-float {
+  position: relative;
+  aspect-ratio: 1;
+}
+.lp .cpu-float img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  filter: drop-shadow(0 38px 44px rgba(23, 23, 23, 0.26));
+}
+.lp .cpu-clean {
+  opacity: 0;
+}
+/* The Apple II's screen, lit from inside by the page rather than by the render. */
+.lp .cpu-screen {
+  position: absolute;
+  left: 27.5%;
+  top: 19.5%;
+  width: 34.5%;
+  height: 27%;
+  transform: perspective(620px) rotateY(-15.5deg) rotateX(2.2deg) skewY(2.6deg);
+  transform-origin: 0 50%;
+  background: #0d1a10;
+  color: #7dff9b;
+  font-family: var(--mono);
+  font-size: clamp(5px, 0.96vw, 9px);
+  line-height: 1.5;
+  padding: 5% 5% 0;
+  overflow: hidden;
+  opacity: 0;
+  text-shadow: 0 0 6px rgba(125, 255, 155, 0.65);
+}
+.lp .cpu-screen i {
+  font-style: normal;
+  color: #f4a15a;
+}
+.lp .cpu-screen .cursor {
+  display: inline-block;
+  width: 0.6em;
+  height: 1em;
+  background: #7dff9b;
+  vertical-align: -0.12em;
+  animation: cpu-blink 1.1s steps(1) infinite;
+}
+@keyframes cpu-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* Over the photograph a hairline button disappears. The hero's own ghost variant keeps the paper
+   fill so both calls to action stay legible wherever the moss line happens to fall. */
+.lp .hero-cta .btn-ghost {
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(6px);
+  color: var(--text);
+  border-color: var(--bg);
+}
+.lp .hero-cta .btn-ghost:hover {
+  background: var(--bg);
+}
+
+.lp .hero-foot {
+  position: relative;
+  /* This band sits over the darkest part of the photograph, so it carries its own contrast
+     rather than inheriting the page's ink. */
+  color: #f2f1ee;
+  text-shadow: 0 1px 4px rgba(16, 16, 16, 0.55);
+  max-width: var(--maxw);
+  margin: 0 auto;
+  width: 100%;
+  padding: 0 24px 28px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+.lp .cue {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.lp .hero-foot .micro {
+  color: inherit;
+}
+.lp .cue i {
+  display: block;
+  width: 1px;
+  height: 34px;
+  background: #f2f1ee;
+  transform-origin: top;
+  animation: cue 2.2s cubic-bezier(0.2, 0.6, 0.3, 1) infinite;
+}
+@keyframes cue {
+  0% {
+    transform: scaleY(0);
+  }
+  45% {
+    transform: scaleY(1);
+  }
+  100% {
+    transform: scaleY(0);
+    transform-origin: bottom;
+  }
+}
+
+/* ---------- sections ---------- */
+
+.lp .sec {
+  position: relative;
+  border-top: 1px solid var(--line);
+  padding-block: clamp(64px, 9vw, 128px);
+}
+.lp .sec-head {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 48px;
+}
+
+.lp .grid {
+  display: grid;
+  gap: 16px;
+}
+.lp .g2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.lp .g3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.lp .g4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.lp .mod {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 6px;
+  padding: 24px;
+}
+.lp .mod-flat {
+  border: 1px solid var(--line);
+  background: transparent;
+  border-radius: 6px;
+  padding: 24px;
+}
+.lp .terminal {
+  background: #101010;
+  color: #f2f1ee;
+  border-radius: 6px;
+  padding: 24px;
+  position: relative;
+  overflow: hidden;
+}
+.lp .terminal .micro,
+.lp .terminal .label {
+  color: #a9a6a0;
+}
+/* The kit's own terminal decoration: the emblem at a coarse matrix, held back to a watermark. */
+.lp .dot-field {
+  position: absolute;
+  right: -4%;
+  top: -8%;
+  width: 46%;
+  height: 116%;
+  opacity: 0.17;
+  pointer-events: none;
+}
+.lp .dot-field svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+/* Lift the terminal's content above its own decoration. Both decorations are excluded by name:
+   they are absolutely positioned, and putting them back in flow makes each one size itself from a
+   parent whose height it is then contributing to. For the canvas that is a feedback loop that
+   grows the section without limit; for the emblem it is a watermark the size of the card. */
+.lp .terminal > *:not(.dcanvas):not(.dot-field) {
+  position: relative;
+}
+
+.lp .kv {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px dotted var(--line);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.lp .kv:last-child {
+  border-bottom: 0;
+}
+.lp .kv span:last-child {
+  color: var(--text);
+}
+.lp .terminal .kv {
+  border-bottom-color: #2a2a27;
+}
+.lp .terminal .kv span:first-child {
+  color: #a9a6a0;
+}
+.lp .terminal .kv span:last-child {
+  color: #f2f1ee;
+}
+
+.lp .figure {
+  font-size: clamp(38px, 5vw, 64px);
+  line-height: 0.92;
+  letter-spacing: -0.03em;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.lp .figure b {
+  color: var(--accent);
+}
+
+.lp .chartbox {
+  position: relative;
+  height: 148px;
+  margin-top: 16px;
+}
+.lp .chartbox.tall {
+  height: 220px;
+}
+
+.lp .badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 5px 10px;
+  border-radius: 2px;
+  background: var(--panel-2);
+  color: var(--muted);
+  border: 1px solid transparent;
+}
+.lp .badge-live {
+  background: var(--accent);
+  color: #16120f;
+}
+.lp .badge-out {
+  background: transparent;
+  border-color: var(--line);
+}
+
+/* ---------- the surf track ---------- */
+
+.lp .surf {
+  position: relative;
+  overflow: hidden;
+  border-top: 1px solid var(--line);
+}
+.lp .surf-in {
+  height: 100svh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 32px;
+}
+.lp .surf-head {
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding-inline: 24px;
+  width: 100%;
+}
+.lp .surf-track {
+  display: flex;
+  gap: 20px;
+  padding-inline: 24px;
+  width: max-content;
+  will-change: transform;
+}
+.lp .step {
+  width: min(78vw, 420px);
+  flex: none;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 6px;
+  padding: 28px;
+  display: grid;
+  gap: 14px;
+  align-content: start;
+  position: relative;
+  overflow: hidden;
+}
+.lp .step .n {
+  font-family: var(--mono);
+  font-size: 56px;
+  line-height: 0.9;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  color: var(--surface-3);
+}
+.lp .step.hot .n {
+  color: var(--accent);
+}
+.lp .step p {
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.5;
+}
+.lp .step .wire {
+  margin-top: 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  padding: 12px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  display: grid;
+  gap: 7px;
+}
+.lp .step .wire b {
+  color: var(--text);
+  font-weight: 500;
+  word-break: break-all;
+}
+
+/* ---------- chain fan-out ---------- */
+
+.lp .chain {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 6px;
+  padding: 20px;
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+.lp .chain .addr {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--dim);
+  word-break: break-all;
+}
+
+/* ---------- strategies ---------- */
+
+.lp .strat {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 6px;
+  padding: 20px;
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+.lp .strat .row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.lp .strat .n {
+  font-family: var(--mono);
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.lp .strat .n.up {
+  color: var(--accent);
+}
+
+/* ---------- close ---------- */
+
+.lp .close {
+  border-top: 1px solid var(--line);
+  padding-block: clamp(72px, 11vw, 160px);
+  text-align: center;
+  display: grid;
+  gap: 24px;
+  justify-items: center;
+}
+.lp footer.foot {
+  border-top: 1px solid var(--line);
+  padding-block: 32px;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 940px) {
+  .lp .hero-in {
+    grid-template-columns: minmax(0, 1fr);
+    padding-top: 96px;
+  }
+  .lp .cpu-scroll {
+    width: min(100%, 420px);
+  }
+  .lp .g3,
+  .lp .g4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 640px) {
+  .lp .g2,
+  .lp .g3,
+  .lp .g4 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .lp .cpu-screen {
+    font-size: 6px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lp .cue i {
+    animation: none;
+  }
+  .lp .cpu-screen .cursor {
+    animation: none;
+  }
+}

@@ -36,7 +36,16 @@ export function initAppKit() {
       icons: [],
     },
     features: { analytics: false, email: false, socials: false },
-    themeMode: "dark",
+    themeMode: "light",
+    // AppKit ships its own blue. The connect button sits next to the sign button on the client's
+    // mandate page, and two different accents there read as two different products.
+    themeVariables: {
+      "--w3m-accent": "#F45108",
+      "--w3m-color-mix": "#171717",
+      "--w3m-color-mix-strength": 8,
+      "--w3m-border-radius-master": "1px",
+      "--w3m-font-family": "var(--font-ui), Helvetica, Arial, sans-serif",
+    },
   });
 }
 

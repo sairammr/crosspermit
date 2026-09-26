@@ -6,10 +6,16 @@
 //   GET  /v1/intents            recent intents
 //   GET  /v1/chains             what this relayer serves, and with whose key
 //   GET  /v1/treasury/:owner    outstanding authority, decoded from the MultiBaas event ledger
+//   POST /v1/clients            create a client mandate; returns the link token
+//   GET  /v1/clients            the desk's client list
+//   GET  /v1/clients/:token     one mandate, readable by whoever holds the link
+//   POST /v1/clients/:token/link   bind the owner who signed it
+//   POST /v1/clients/:token/revoke withdraw the invitation (NOT the allowance)
 //   GET  /healthz /readyz       liveness and readiness
 import { IntentError, fromWire } from "@crosspermit/sdk";
 
 import { Admission, admissionFromEnv } from "./admission.js";
+import { ClientError, Clients } from "./clients.js";
 
 import { loadConfig } from "./config.js";
 import { Relayer } from "./relayer.js";
@@ -18,6 +24,7 @@ import { Store } from "./store.js";
 const repoRoot = new URL("../../../", import.meta.url);
 const { config, banner } = await loadConfig(repoRoot);
 const store = new Store(config.dbPath);
+const clients = new Clients(store.database);
 const admissionConfig = admissionFromEnv();
 const admission = new Admission(admissionConfig);
 const relayer = new Relayer(config, store, (owner, wei) => admission.chargeGas(owner, wei));
@@ -140,6 +147,69 @@ const server = Bun.serve({
         console.error("treasury read failed", e);
         return json({ error: "control plane unreachable", code: "treasury_unavailable", covered, uncovered }, 502);
       }
+    }
+
+    // ---------------------------------------------------------------- client mandates
+    //
+    // Creating and listing are the desk's own operations and sit behind the API key. Reading one
+    // mandate by its token is deliberately open: that link IS the client's way in, and the thing it
+    // returns is an offer, not authority.
+    if (path === "/v1/clients" && req.method === "POST") {
+      const key = admission.checkKey(req.headers.get("authorization")?.replace(/^Bearer /i, "") ?? null);
+      if (!key.ok) return json({ error: key.message, code: key.code }, key.status);
+      try {
+        return json({ client: clients.create((await req.json()) as Record<string, unknown>) }, 201);
+      } catch (e) {
+        if (e instanceof ClientError) return json({ error: e.message, code: e.code }, 400);
+        return json({ error: "body is not valid JSON", code: "malformed" }, 400);
+      }
+    }
+
+    if (path === "/v1/clients" && req.method === "GET") {
+      const key = admission.checkKey(req.headers.get("authorization")?.replace(/^Bearer /i, "") ?? null);
+      if (!key.ok) return json({ error: key.message, code: key.code }, key.status);
+      return json({ clients: clients.list(Number(url.searchParams.get("limit") ?? 100)) });
+    }
+
+    const link = path.match(/^\/v1\/clients\/([0-9a-f]{32})\/link$/);
+    if (link && req.method === "POST") {
+      const body = (await req.json().catch(() => ({}))) as { owner?: string; intentId?: string };
+      // The intent has to exist and has to be the one this owner signed. Without both checks a
+      // mandate could be marked active by anyone who guessed a link and posted an address.
+      const intent = body.intentId ? store.intent(body.intentId) : null;
+      if (!intent) return json({ error: "unknown intent", code: "not_found" }, 404);
+      if (intent.owner.toLowerCase() !== String(body.owner ?? "").toLowerCase()) {
+        return json({ error: "owner does not match the signed intent", code: "owner_mismatch" }, 400);
+      }
+      try {
+        const bound = clients.link(link[1]!, intent.owner, intent.intentId);
+        return bound
+          ? json({ client: bound })
+          : json({ error: "this link is already claimed or was withdrawn", code: "already_linked" }, 409);
+      } catch (e) {
+        if (e instanceof ClientError) return json({ error: e.message, code: e.code }, 400);
+        throw e;
+      }
+    }
+
+    const revoke = path.match(/^\/v1\/clients\/([0-9a-f]{32})\/revoke$/);
+    if (revoke && req.method === "POST") {
+      const key = admission.checkKey(req.headers.get("authorization")?.replace(/^Bearer /i, "") ?? null);
+      if (!key.ok) return json({ error: key.message, code: key.code }, key.status);
+      const gone = clients.revoke(revoke[1]!);
+      return gone
+        ? json({
+            client: gone,
+            // Said out loud, because the two are easy to confuse and only one of them closes risk.
+            note: "the invitation is withdrawn; any allowance already signed is still live and is retracted with a cross-chain LOCK",
+          })
+        : json({ error: "unknown or already withdrawn", code: "not_found" }, 404);
+    }
+
+    const oneClient = path.match(/^\/v1\/clients\/([0-9a-f]{32})$/);
+    if (oneClient && req.method === "GET") {
+      const found = clients.get(oneClient[1]!);
+      return found ? json({ client: found }) : json({ error: "unknown link", code: "not_found" }, 404);
     }
 
     const quota = path.match(/^\/v1\/quota\/(0x[0-9a-fA-F]{40})$/);
