@@ -4,11 +4,11 @@
  * The Uniswap v4 pools this client's approved assets trade in, and the one action a mandate can
  * take in them: provide liquidity, paid for by the writ.
  *
- * The flow is two steps and they are deliberately not merged. Step one is the CLIENT signing a
- * liquidity writ — an allowance naming `LiquidityDesk` as spender on both sides of the pair, on
- * every chain they choose, from one signature. Step two is the DESK calling `add`, which is a
- * transaction anyone may send: it can only move tokens from an account that signed such a writ, it
- * can only move them into the PoolManager, and the position it creates belongs to the client.
+ * There is one step here, and it belongs to the DESK. The client's mandate — the single signature
+ * they gave on `/c/<token>` — already names `LiquidityDesk` as a spender on every chain and token
+ * it covers, so allocating is `add`, a transaction anyone may send: it can only move tokens from an
+ * account that signed such a mandate, it can only move them into the PoolManager, and the position
+ * it creates belongs to the client.
  *
  * Which is the product claim, expressed as a screen: the desk can put the client's capital to work
  * without ever being able to take it.
@@ -16,13 +16,15 @@
 
 import { useMemo, useState } from "react";
 import { type Address, formatUnits, parseUnits } from "viem";
-import { useAccount, useReadContracts, useSwitchChain, useSignTypedData, useWriteContract } from "wagmi";
+import { useAccount, useReadContracts, useSwitchChain, useWriteContract } from "wagmi";
 
-import { SIGNING_CHAIN_ID, approveEntry, crossPermitAbi, prepareIntent, toWire } from "@crosspermit/sdk";
+import { crossPermitAbi } from "@crosspermit/sdk";
 import { CROSS_PERMIT, chainById } from "../../../../src/config";
 import {
   POOL_CHAINS,
   amountsForLiquidity,
+  poolId,
+  rangeAt,
   decodeSlot0,
   liquidityDeskAbi,
   liquidityForAmounts,
@@ -31,8 +33,7 @@ import {
   poolStateSlot,
   positionSlot,
 } from "../../../../src/pools";
-import { postIntent } from "../../../../src/relayer";
-import { onSigningChain, openAppKit } from "../../../../src/wagmi";
+import { openAppKit } from "../../../../src/wagmi";
 
 const short = (s: string, n = 6) => (s.length > 2 * n ? `${s.slice(0, n)}…${s.slice(-4)}` : s);
 const fmt = (n: number, dp = 4) => n.toLocaleString("en-US", { maximumFractionDigits: dp });
@@ -68,12 +69,20 @@ export function PoolsPanel({
         against a pool whose liquidity we seeded.
       </p>
       {POOL_CHAINS.map((p) => (
-        <Pool key={p.chainId} pool={p} owner={owner} onRow={(row) => onRows?.([row])} />
+        // Keyed by the pool, not the chain: a chain can carry both Uniswap's own pool and one this
+        // repo seeded, and those are two different venues with two different positions.
+        <Pool key={poolId(p.key)} pool={p} owner={owner} onRow={(row) => onRows?.([row])} />
       ))}
       <p className="note">
-        Uniswap has no v4 deployment this desk can reach on Unichain Sepolia, and MultiBaas does not index it either,
-        so the three pools above are Base, Optimism and Ethereum Sepolia. Each one is a real pool with real depth,
-        created by <span className="mono">V4PoolSeeder</span> and traded by the lifecycle script.
+        Two of these are Uniswap&rsquo;s own pools — the canonical USDC/WETH pairs on Base and Ethereum Sepolia, found
+        by sweeping each PoolManager&rsquo;s <span className="mono">Initialize</span> log and reading depth back with{" "}
+        <span className="mono">extsload</span>. They are listed instead of anything deeper because{" "}
+        <span className="mono">LiquidityDesk</span> settles with <span className="mono">CrossPermit.transferFrom</span>{" "}
+        and therefore cannot pay a native-ETH side: Ethereum Sepolia&rsquo;s deepest v4 pools are ETH/USDC and are out
+        of reach by construction. Optimism Sepolia has no Uniswap v4 pool at all — no{" "}
+        <span className="mono">Initialize</span> event in 600k blocks — so the venue there, and the ones marked{" "}
+        <em>seeded</em>, are this repository&rsquo;s own <span className="mono">V4PoolSeeder</span> pools over mock
+        tokens. A client can only be allocated into a pool whose two tokens they actually hold.
       </p>
     </div>
   );
@@ -90,11 +99,10 @@ function Pool({
 }) {
   const { address, chainId: walletChain } = useAccount();
   const { switchChainAsync } = useSwitchChain();
-  const { signTypedDataAsync } = useSignTypedData();
   const { writeContractAsync } = useWriteContract();
 
   const [size, setSize] = useState("1");
-  const [busy, setBusy] = useState<null | "writ" | "add" | "remove" | "collect">(null);
+  const [busy, setBusy] = useState<null | "add" | "remove" | "collect">(null);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
 
@@ -104,6 +112,15 @@ function Pool({
   // Pool state, the client's own position, and the two allowances that decide whether `add` can
   // work at all. One batch, because unlike the allowance reads on the asset table these are all
   // on the same chain and a Multicall3 hop failing here fails the whole card, visibly.
+  // The range is anchored to the tick the pool was at when this card first read it, not to the
+  // live tick: re-deriving it on every read would move the position key under the client's feet,
+  // and the position this card offers to take back would stop resolving the moment the price
+  // moved a spacing.
+  // ponytail: session-anchored range. A position minted in an earlier session, at a different
+  // price, is not found by this card — read the owner's Mint logs if that ever matters.
+  const [anchor, setAnchor] = useState<number | null>(null);
+  const ticks = rangeAt(pool, anchor ?? 0);
+
   const reads = useReadContracts({
     contracts: [
       { address: pool.poolManager, abi: poolManagerAbi, functionName: "extsload", args: [poolStateSlot(pool.key)], chainId: pool.chainId },
@@ -112,7 +129,7 @@ function Pool({
         address: pool.poolManager,
         abi: poolManagerAbi,
         functionName: "extsload",
-        args: [positionSlot(pool.key, desk, pool.tickLower, pool.tickUpper, owner ?? desk)],
+        args: [positionSlot(pool.key, desk, ticks.tickLower, ticks.tickUpper, owner ?? desk)],
         chainId: pool.chainId,
       },
       { address: CROSS_PERMIT, abi: crossPermitAbi, functionName: "allowance", args: [owner!, currency0, desk], chainId: pool.chainId },
@@ -135,78 +152,36 @@ function Pool({
   const nowSec = Math.floor(Date.now() / 1000);
   const liveAllowance = (a?: readonly [bigint, number, number]) => (a && Number(a[1]) > nowSec ? a[0] : 0n);
 
-  // The whole quote, derived from the price the pool is at right now.
+  // The whole quote, derived from the price the pool is at right now, and denominated in each
+  // side's own units — WETH is 18dp and USDC 6dp, so a single shared parse would size one of them
+  // a trillion times wrong.
   const quote = useMemo(() => {
     if (!slot0) return null;
-    let units: bigint;
+    let units0: bigint;
+    let units1: bigint;
     try {
-      units = parseUnits(size || "0", 6);
+      units0 = parseUnits(size || "0", pool.dec0);
+      units1 = parseUnits(size || "0", pool.dec1);
     } catch {
       return null;
     }
-    if (units <= 0n) return null;
+    if (units0 <= 0n || units1 <= 0n) return null;
     const sqrtP = Number(slot0.sqrtPriceX96) / 2 ** 96;
-    const budget = Number(units);
-    const liquidity = liquidityForAmounts(budget, budget, sqrtP, pool.tickLower, pool.tickUpper);
+    const liquidity = liquidityForAmounts(Number(units0), Number(units1), sqrtP, ticks.tickLower, ticks.tickUpper);
     if (liquidity <= 0) return null;
-    const { amount0, amount1 } = amountsForLiquidity(liquidity, sqrtP, pool.tickLower, pool.tickUpper);
+    const { amount0, amount1 } = amountsForLiquidity(liquidity, sqrtP, ticks.tickLower, ticks.tickUpper);
     const cap = (n: number) => BigInt(Math.ceil(n * SLIPPAGE) + 1);
     return { liquidity: BigInt(liquidity), amount0, amount1, max0: cap(amount0), max1: cap(amount1) };
-  }, [slot0?.sqrtPriceX96, size, pool.tickLower, pool.tickUpper]);
+  }, [slot0?.sqrtPriceX96, size, ticks.tickLower, ticks.tickUpper, pool.dec0, pool.dec1]);
 
   const covered =
     quote !== null && liveAllowance(allowance0) >= quote.max0 && liveAllowance(allowance1) >= quote.max1;
 
+  if (slot0 && anchor === null) setAnchor(slot0.tick);
+
   if (slot0 && depth !== undefined) {
     // Lifted for the depth chart. Cheap enough to do on render; the parent dedupes by chain.
     onRow?.({ chainId: pool.chainId, liquidity: depth, price: slot0.price, tick: slot0.tick });
-  }
-
-  /** One signature: an allowance to the LiquidityDesk on BOTH sides of the pair. */
-  async function signWrit() {
-    if (!owner || !quote) return;
-    setBusy("writ");
-    setError(null);
-    setDone(null);
-    try {
-      if (!address) {
-        openAppKit();
-        throw new Error("connect the client's wallet to sign the writ");
-      }
-      if (address.toLowerCase() !== owner.toLowerCase()) {
-        throw new Error(`only ${short(owner)} can widen their own writ — this wallet is ${short(address)}`);
-      }
-      const now = Math.floor(Date.now() / 1000);
-      const expiry = now + 24 * 3600;
-      // Headroom over this one add, so a second position does not need a second signature — and
-      // stated as such rather than quietly granting more than the screen showed.
-      const grant = (n: bigint) => n * 4n;
-      const { intent, typedData } = prepareIntent({
-        crossPermit: CROSS_PERMIT,
-        owner,
-        now,
-        ttl: 3600,
-        chains: [
-          {
-            chainId: pool.chainId,
-            permits: [
-              approveEntry(currency0, desk, grant(quote.max0), expiry),
-              approveEntry(currency1, desk, grant(quote.max1), expiry),
-            ],
-          },
-        ],
-      });
-      await onSigningChain(walletChain, switchChainAsync);
-      const signature = await signTypedDataAsync({ ...typedData, chainId: SIGNING_CHAIN_ID } as never);
-      const { status, body } = await postIntent(toWire({ ...intent, signature }));
-      if (status >= 400) throw new Error(`${body.code ?? status}: ${body.error ?? "rejected"}`);
-      setDone(`writ submitted — intent ${short(String(body.intentId), 8)}`);
-      setTimeout(() => reads.refetch(), 4000);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(null);
-    }
   }
 
   /** The desk's transaction. It can only ever move the client's tokens into this pool. */
@@ -226,7 +201,7 @@ function Pool({
         abi: liquidityDeskAbi,
         functionName: "add",
         chainId: pool.chainId,
-        args: [owner, pool.key, pool.tickLower, pool.tickUpper, quote.liquidity, quote.max0, quote.max1],
+        args: [owner, pool.key, ticks.tickLower, ticks.tickUpper, quote.liquidity, quote.max0, quote.max1],
       });
       setDone(`${pool.explorer}/tx/${hash}`);
       setTimeout(() => reads.refetch(), 6000);
@@ -265,8 +240,8 @@ function Pool({
         chainId: pool.chainId,
         args:
           what === "remove"
-            ? [pool.key, pool.tickLower, pool.tickUpper, position]
-            : [pool.key, pool.tickLower, pool.tickUpper],
+            ? [pool.key, ticks.tickLower, ticks.tickUpper, position]
+            : [pool.key, ticks.tickLower, ticks.tickUpper],
       });
       setDone(`${pool.explorer}/tx/${hash}`);
       setTimeout(() => reads.refetch(), 6000);
@@ -279,7 +254,7 @@ function Pool({
 
   const positionAmounts =
     position && position > 0n && slot0
-      ? amountsForLiquidity(Number(position), Number(slot0.sqrtPriceX96) / 2 ** 96, pool.tickLower, pool.tickUpper)
+      ? amountsForLiquidity(Number(position), Number(slot0.sqrtPriceX96) / 2 ** 96, ticks.tickLower, ticks.tickUpper)
       : null;
 
   return (
@@ -287,7 +262,10 @@ function Pool({
       <div className="rec-head">
         <h4 id={`pool-${pool.chainId}`}>{pool.name}</h4>
         <span className="micro kindtag">
-          {pool.key.fee / 10_000}% · spacing {pool.key.tickSpacing}
+          {pool.sym0}/{pool.sym1} · {pool.key.fee / 10_000}% · spacing {pool.key.tickSpacing}
+        </span>
+        <span className={`tag ${pool.source === "uniswap" ? "ok" : "awaiting"}`}>
+          {pool.source === "uniswap" ? "Uniswap's own pool" : "seeded by this repo"}
         </span>
         <span className={`tag ${slot0 ? "active" : "awaiting"}`}>{slot0 ? "pool live" : "unread"}</span>
       </div>
@@ -300,15 +278,15 @@ function Pool({
         </div>
         <div className="stat">
           <div className="k">Depth</div>
-          <div className="v">{depth === undefined ? "—" : fmt(Number(depth) / 1e6, 2)}</div>
+          <div className="v">{depth === undefined ? "—" : depth.toString()}</div>
           <div className="n">in-range liquidity, L/1e6</div>
         </div>
         <div className="stat">
           <div className="k">This client&rsquo;s position</div>
-          <div className="v">{position === undefined ? "—" : position === 0n ? "none" : fmt(Number(position) / 1e6, 2)}</div>
+          <div className="v">{position === undefined ? "—" : position === 0n ? "none" : position.toString()}</div>
           <div className="n">
             {positionAmounts
-              ? `≈ ${fmt(positionAmounts.amount0 / 1e6, 4)} + ${fmt(positionAmounts.amount1 / 1e6, 4)} at today's price`
+              ? `≈ ${fmt(positionAmounts.amount0 / 10 ** pool.dec0, 4)} ${pool.sym0} + ${fmt(positionAmounts.amount1 / 10 ** pool.dec1, 4)} ${pool.sym1} at today's price`
               : "salt = the client's address, so v4 holds it in their name"}
           </div>
         </div>
@@ -351,14 +329,16 @@ function Pool({
 
       <div className="row subject" style={{ marginTop: 10 }}>
         <label className="field">
-          <span className="lbl">Size per side (6dp)</span>
+          <span className="lbl">Size per side ({pool.sym0} / {pool.sym1})</span>
           <input value={size} onChange={(e) => setSize(e.target.value)} inputMode="decimal" />
         </label>
         <span className="micro">
           {quote
-            ? `pulls ≈ ${fmt(quote.amount0 / 1e6)} + ${fmt(quote.amount1 / 1e6)}, capped at ${fmt(
-                Number(quote.max0) / 1e6,
-              )} + ${fmt(Number(quote.max1) / 1e6)} · L ${quote.liquidity.toString()} over ticks ${pool.tickLower}…${pool.tickUpper}`
+            ? `pulls ≈ ${fmt(quote.amount0 / 10 ** pool.dec0)} ${pool.sym0} + ${fmt(
+                quote.amount1 / 10 ** pool.dec1,
+              )} ${pool.sym1}, capped at ${fmt(Number(quote.max0) / 10 ** pool.dec0)} + ${fmt(
+                Number(quote.max1) / 10 ** pool.dec1,
+              )} · L ${quote.liquidity.toString()} over ticks ${ticks.tickLower}…${ticks.tickUpper}`
             : "enter a size to quote the position"}
         </span>
       </div>
@@ -366,22 +346,19 @@ function Pool({
       <div className="row" style={{ marginTop: 8 }}>
         <button
           type="button"
-          className={covered ? "btn btn-sm" : "btn btn-sm btn-action"}
-          disabled={!owner || !quote || busy !== null}
-          onClick={() => void signWrit()}
-          title="the client signs an allowance naming the LiquidityDesk, on both sides of the pair"
-        >
-          <span className="cap">{busy === "writ" ? "Signing…" : covered ? "Writ covers this" : "1 · Sign liquidity writ"}</span>
-        </button>
-        <button
-          type="button"
-          className={covered ? "btn btn-sm btn-action" : "btn btn-sm"}
+          className="btn btn-sm btn-action"
           disabled={!covered || busy !== null}
           onClick={() => void addLiquidity()}
-          title={covered ? "pull under the writ and mint the position to the client" : "no writ covers this size yet"}
+          title={covered ? "pull under the client's mandate and mint the position to them" : "the mandate does not cover this size on this chain"}
         >
-          <span className="cap">{busy === "add" ? "Adding…" : "2 · Add to the pool"}</span>
+          <span className="cap">{busy === "add" ? "Adding…" : "Add to the pool"}</span>
         </button>
+        <span className={`tag ${covered ? "ok" : "warn"}`}>{covered ? "covered by the mandate" : "mandate too small for this size"}</span>
+        <span className="micro">
+          {covered
+            ? "the desk's transaction — the client signs nothing here"
+            : "reduce the size, or ask the client to re-sign a larger mandate"}
+        </span>
       </div>
 
       <div className="row" style={{ marginTop: 8 }}>
@@ -417,11 +394,12 @@ function Pool({
       </p>
 
       <p className="note">
-        Writ standing to the desk: {formatUnits(liveAllowance(allowance0), 6)} of currency0,{" "}
-        {formatUnits(liveAllowance(allowance1), 6)} of currency1.
+        Standing to the LiquidityDesk under the client&rsquo;s one signed mandate:{" "}
+        {formatUnits(liveAllowance(allowance0), pool.dec0)} {pool.sym0},{" "}
+        {formatUnits(liveAllowance(allowance1), pool.dec1)} {pool.sym1}.
         {covered
-          ? " Enough for this size. `add` settles by calling CrossPermit.transferFrom(client → PoolManager) inside the v4 unlock — the desk never holds a balance."
-          : " Not enough for this size, so step two is closed until the client widens it."}
+          ? " Enough for this size. `add` settles by calling CrossPermit.transferFrom(client → PoolManager) inside the v4 unlock — the desk never holds a balance, and the client is not asked to sign again."
+          : " Not enough for this size on this chain. The mandate is the only thing that can raise it, and only the client can sign one."}
       </p>
 
       {error && (

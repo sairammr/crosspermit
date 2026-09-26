@@ -9,7 +9,7 @@
 //            transaction until they take the position back.
 //   RELAYER  pays gas for the writ. Its only privilege.
 //
-//   set -a && . ./.env && set +a && bun apps/desk/scripts/lifecycle.ts [--keep] [--size 1.0]
+//   set -a && . ./.env && set +a && bun apps/web/scripts/lifecycle.ts [--keep] [--size 1.0]
 //
 // Reads DESK_URL (default the web origin, so the Next rewrite is exercised too), PRIVATE_KEY as the
 // client and RELAYER_PRIVATE_KEY as the manager's transaction signer.
@@ -25,8 +25,8 @@ import {
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
-import { CHAINS } from "@crosspermit/web/src/config";
-import { POOLS, amountsForLiquidity, decodeSlot0, liquidityForAmounts, poolManagerAbi, poolStateSlot, positionSlot } from "@crosspermit/web/src/pools";
+import { CHAINS } from "../src/config";
+import { POOLS, amountsForLiquidity, decodeSlot0, liquidityForAmounts, poolManagerAbi, poolStateSlot, positionSlot } from "../src/pools";
 import { approveEntry, crossPermitAbi, prepareIntent, toWire } from "@crosspermit/sdk";
 
 const DESK = process.env.DESK_URL ?? "http://localhost:3000/api/desk";

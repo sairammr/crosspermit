@@ -38,13 +38,40 @@ export type PoolKey = {
 export type PoolInfo = {
   chainId: number;
   poolManager: Address;
-  /** The v4 LP adapter that pulls under a CrossPermit writ. */
+  /** The v4 LP adapter that pulls under the client's signed mandate. */
   liquidityDesk: Address;
   key: PoolKey;
-  /** The range the pool was seeded over, and the one this dashboard offers. */
-  tickLower: number;
-  tickUpper: number;
+  /**
+   * Where the pool came from.
+   *
+   * `uniswap` is a pool this repository did not create: Uniswap's own testnet deployment, the
+   * canonical WETH/USDC pair, with whatever depth the public has put in it. `seeded` is one
+   * `V4PoolSeeder` created over two mock tokens this repository deployed — useful because a demo
+   * client actually holds those, useless as evidence that anything works against the real world.
+   */
+  source: "uniswap" | "seeded";
+  /** Both sides, so a quote can be denominated in each token's own units rather than assuming 6dp. */
+  sym0: string;
+  sym1: string;
+  dec0: number;
+  dec1: number;
+  /**
+   * How many tick spacings either side of the pool's current tick a position is offered over.
+   *
+   * A fixed −600…600 was right only while every pool here was a 1:1 mock pair: WETH/USDC sits near
+   * tick −196000, where that range is nowhere near the price and any position minted in it would be
+   * entirely one-sided. The range is therefore computed from the live tick, at `rangeSpacings`
+   * spacings out, and aligned down to the spacing the way v4 requires.
+   */
+  rangeSpacings: number;
 };
+
+/** The offered range for a pool, from the tick it is at right now. */
+export function rangeAt(pool: Pick<PoolInfo, "key" | "rangeSpacings">, tick: number) {
+  const s = pool.key.tickSpacing;
+  const mid = Math.floor(tick / s) * s;
+  return { tickLower: mid - pool.rangeSpacings * s, tickUpper: mid + pool.rangeSpacings * s };
+}
 
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
 
@@ -56,22 +83,59 @@ const ZERO = "0x0000000000000000000000000000000000000000" as Address;
  * Change a fee or a tick spacing here and it is a different, uninitialised pool.
  */
 export const POOLS: PoolInfo[] = [
+  // ---- Uniswap's own pools, on Uniswap's own PoolManagers ----
+  // Found by sweeping each PoolManager's Initialize logs and reading slot0/liquidity back with
+  // `extsload`; only hookless ERC20/ERC20 pools are listed, because `LiquidityDesk` settles with
+  // `CrossPermit.transferFrom` and can therefore never pay a native-ETH side. That rules out the
+  // deepest testnet pools — ETH/USDC on Ethereum Sepolia — however much depth they carry.
   {
     chainId: 84532,
+    source: "uniswap",
     poolManager: "0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408",
     liquidityDesk: "0xE666e3F76062d670A84b964Ca4D9B456b1531C03",
     key: {
-      currency0: "0x4c309fD174629eE7Ac8eEceae8669FBaFD9953A2",
-      currency1: "0x974727EA649Ee0EfBB6A1b1A584614838B832cB3",
-      fee: 3000,
-      tickSpacing: 60,
+      // WETH (canonical predeploy) / USDC (Circle's own Base Sepolia deployment).
+      currency0: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+      currency1: "0x4200000000000000000000000000000000000006",
+      fee: 100,
+      tickSpacing: 1,
       hooks: ZERO,
     },
-    tickLower: -600,
-    tickUpper: 600,
+    sym0: "USDC",
+    sym1: "WETH",
+    dec0: 6,
+    dec1: 18,
+    rangeSpacings: 200,
   },
   {
+    chainId: 11155111,
+    source: "uniswap",
+    poolManager: "0xE03A1074c86CFeDd5C142C4F04F1a1536e203543",
+    liquidityDesk: "0x2EDaA9629436C9D0b93301422a27b640068D7Cde",
+    key: {
+      // The only hookless ERC20/ERC20 canonical pool with any depth on Ethereum Sepolia. It is
+      // thin — the liquidity there is in the native ETH/USDC pools, which this adapter cannot pay.
+      currency0: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+      currency1: "0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14",
+      fee: 10_000,
+      tickSpacing: 200,
+      hooks: ZERO,
+    },
+    sym0: "USDC",
+    sym1: "WETH",
+    dec0: 6,
+    dec1: 18,
+    rangeSpacings: 2,
+  },
+
+  // ---- our own seeded pools ----
+  // Kept, and labelled, for one reason: a demo client holds these mock tokens and can therefore
+  // actually be allocated. Optimism Sepolia has no Uniswap v4 pool at all — no Initialize event in
+  // 600k blocks, and none of the canonical keys are even initialised — so this is the only venue
+  // there.
+  {
     chainId: 11155420,
+    source: "seeded",
     poolManager: "0xf7F5aB3DcA35e17dE187b459159BC643853B3c67",
     liquidityDesk: "0x012a12367CeEB9e4ead98803D8019913cA80c3C2",
     key: {
@@ -81,11 +145,33 @@ export const POOLS: PoolInfo[] = [
       tickSpacing: 60,
       hooks: ZERO,
     },
-    tickLower: -600,
-    tickUpper: 600,
+    sym0: "mUSDC",
+    sym1: "mUSDC",
+    dec0: 6,
+    dec1: 6,
+    rangeSpacings: 10,
+  },
+  {
+    chainId: 84532,
+    source: "seeded",
+    poolManager: "0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408",
+    liquidityDesk: "0xE666e3F76062d670A84b964Ca4D9B456b1531C03",
+    key: {
+      currency0: "0x4c309fD174629eE7Ac8eEceae8669FBaFD9953A2",
+      currency1: "0x974727EA649Ee0EfBB6A1b1A584614838B832cB3",
+      fee: 3000,
+      tickSpacing: 60,
+      hooks: ZERO,
+    },
+    sym0: "mUSDC",
+    sym1: "mUSDC",
+    dec0: 6,
+    dec1: 6,
+    rangeSpacings: 10,
   },
   {
     chainId: 11155111,
+    source: "seeded",
     poolManager: "0xE03A1074c86CFeDd5C142C4F04F1a1536e203543",
     liquidityDesk: "0x2EDaA9629436C9D0b93301422a27b640068D7Cde",
     key: {
@@ -95,12 +181,17 @@ export const POOLS: PoolInfo[] = [
       tickSpacing: 60,
       hooks: ZERO,
     },
-    tickLower: -600,
-    tickUpper: 600,
+    sym0: "mUSDC",
+    sym1: "mUSDC",
+    dec0: 6,
+    dec1: 6,
+    rangeSpacings: 10,
   },
 ];
 
-export const poolOn = (chainId: number) => POOLS.find((p) => p.chainId === chainId);
+/** The venue a chain leads with: Uniswap's own pool where there is one. */
+export const poolOn = (chainId: number) =>
+  POOLS.find((p) => p.chainId === chainId && p.source === "uniswap") ?? POOLS.find((p) => p.chainId === chainId);
 
 /** Every pool whose key names this token — i.e. the venues one approved asset can actually reach. */
 export const poolsForToken = (token: Address) =>

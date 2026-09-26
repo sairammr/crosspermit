@@ -4,13 +4,13 @@
 // signature really opens a session, two managers really cannot see each other's books, an address in
 // a URL really is not a credential, and the scope check really names the desks deployed on chain.
 //
-//   DESK_URL=http://localhost:8788 bun apps/desk/scripts/live-smoke.ts
+//   DESK_URL=http://localhost:8788 bun apps/web/scripts/live-smoke.ts
 //
 // Signs with the two well-known anvil keys. They hold nothing and are only identities here — the
 // layer never asks them for a transaction.
 import { privateKeyToAccount } from "viem/accounts";
 
-const DESK = process.env.DESK_URL ?? "http://localhost:8788";
+const DESK = process.env.DESK_URL ?? "http://localhost:3000/api/desk";
 
 const A = privateKeyToAccount("0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d");
 const B = privateKeyToAccount("0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba");
@@ -121,7 +121,7 @@ console.log("\nscope check, against chain");
 const mine = (await req("/v1/clients", { cookie: a })).body.clients.filter((c: any) => c.owner);
 if (mine.length === 0) {
   console.log("  --   no signed mandate in A's book; import one first:");
-  console.log(`       bun apps/desk/scripts/import.ts ${A.address} --all`);
+  console.log(`       bun apps/web/scripts/import.ts ${A.address} --all`);
 } else {
   const out = await req(`/v1/clients/${mine[0].token}/scope-check`, { cookie: a });
   check(out.status === 200, `read the ledger for ${mine[0].owner?.slice(0, 10)}…`);

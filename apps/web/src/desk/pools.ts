@@ -6,7 +6,7 @@
 // where they are already checked against a pool whose liquidity we seeded and therefore know.
 import { type Address, createPublicClient, http, parseAbi } from "viem";
 
-import { CHAINS } from "@crosspermit/web/src/config";
+import { CHAINS } from "../config";
 import {
   type PoolInfo,
   POOLS,
@@ -16,7 +16,8 @@ import {
   poolManagerAbi,
   poolStateSlot,
   positionSlot,
-} from "@crosspermit/web/src/pools";
+  rangeAt,
+} from "../pools";
 
 const erc20 = parseAbi(["function symbol() view returns (string)", "function decimals() view returns (uint8)"]);
 
@@ -82,6 +83,10 @@ async function tokenMeta(chainId: number, token: Address) {
 
 async function readPool(pool: PoolInfo, owner?: Address): Promise<PoolView> {
   const chain = CHAINS.find((c) => c.id === pool.chainId);
+  // The offered range follows the pool's own tick now that these are real pairs and not 1:1 mocks.
+  // It is read below and folded in; until then the pool's own current tick is unknown, so start
+  // from the range around tick 0 and replace it once slot0 lands.
+  let ticks = rangeAt(pool, 0);
   const base = {
     chainId: pool.chainId,
     chain: chain?.name ?? String(pool.chainId),
@@ -92,8 +97,8 @@ async function readPool(pool: PoolInfo, owner?: Address): Promise<PoolView> {
     liquidityDesk: pool.liquidityDesk,
     fee: pool.key.fee,
     tickSpacing: pool.key.tickSpacing,
-    tickLower: pool.tickLower,
-    tickUpper: pool.tickUpper,
+    tickLower: ticks.tickLower,
+    tickUpper: ticks.tickUpper,
   };
 
   try {
@@ -109,18 +114,21 @@ async function readPool(pool: PoolInfo, owner?: Address): Promise<PoolView> {
     ]);
 
     const slot0 = decodeSlot0(word0 as `0x${string}`);
+    ticks = rangeAt(pool, slot0.tick);
+    base.tickLower = ticks.tickLower;
+    base.tickUpper = ticks.tickUpper;
     const liquidity = BigInt(wordL as `0x${string}`);
     const sqrtP = Number(slot0.sqrtPriceX96) / 2 ** 96;
-    const { amount0, amount1 } = amountsForLiquidity(Number(liquidity), sqrtP, pool.tickLower, pool.tickUpper);
+    const { amount0, amount1 } = amountsForLiquidity(Number(liquidity), sqrtP, ticks.tickLower, ticks.tickUpper);
 
     let position: Position | undefined;
     if (owner) {
       const word = (await read(
-        positionSlot(pool.key, pool.liquidityDesk, pool.tickLower, pool.tickUpper, owner),
+        positionSlot(pool.key, pool.liquidityDesk, ticks.tickLower, ticks.tickUpper, owner),
       )) as `0x${string}`;
       const own = BigInt(word);
       if (own > 0n) {
-        const mine = amountsForLiquidity(Number(own), sqrtP, pool.tickLower, pool.tickUpper);
+        const mine = amountsForLiquidity(Number(own), sqrtP, ticks.tickLower, ticks.tickUpper);
         position = {
           liquidity: own.toString(),
           amount0: mine.amount0 / 10 ** m0.decimals,

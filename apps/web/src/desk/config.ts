@@ -29,5 +29,3 @@ export function routers(env: Record<string, string | undefined> = process.env): 
     throw new Error("DESK_ROUTERS must be JSON of the form {\"84532\":\"0x…\"}");
   }
 }
-
-export const PORT = Number(process.env.DESK_PORT ?? 8788);

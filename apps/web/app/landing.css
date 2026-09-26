@@ -8,8 +8,56 @@
   --mark-grey: #777671;
   --on-ink: #f2f1ee;
   --signal-wash: #fde7da;
-  --track-label: 0.08em;
   --maxw: 1280px;
+
+  /* The console material and the three radii now live in globals.css :root, because the desk is
+     the same hardware and was drawing its own flatter version of it. Nothing landing-specific was
+     lost in the move — the values are identical. */
+
+  /* ---------- type scale ----------
+     Seven steps, each with the line-height and tracking it is meant to carry, so no rule below
+     ever restates a raw px size. Display and h2 are clamped because they are the only steps that
+     have to survive both a 375px phone and a 1440px desk without being re-set by hand.
+     Tracking collapses to three values on purpose: negative on anything large and set in the
+     screen sans, --track-tight on the mid sizes, --track-label on every uppercase mono run. */
+  --t-display: clamp(40px, 5.4vw, 68px);
+  --lh-display: 1;
+  --t-h2: clamp(30px, 3.6vw, 46px);
+  --lh-h2: 1.1;
+  --t-h3: 20px;
+  --lh-h3: 1.25;
+  --t-figure: clamp(38px, 5vw, 64px);
+  --t-lede: 15px;
+  --lh-lede: 1.6;
+  --t-body: 14px;
+  --lh-body: 1.55;
+  --t-label: 12px;
+  --t-micro: 11px;
+  --lh-label: 1.35;
+  --track-display: -0.035em;
+  --track-tight: -0.02em;
+  --track-label: 0.08em;
+  /* Three weights, held everywhere. IBM Plex Mono is only loaded at 400/500/600, so anything
+     heavier than --w-mark was being synthesised by the browser rather than rendered. */
+  --w-body: 400;
+  --w-head: 500;
+  --w-mark: 600;
+
+  /* ---------- spacing scale ----------
+     4px base. Every gap, pad and section beat on this page comes from one of these eight steps;
+     the page used to mix 10/14/18/20/22/26/28/44 and never settled into a rhythm. --s-sec is the
+     one vertical beat a section opens and closes on, --s-head the one gap between a .sec-head and
+     whatever it introduces. */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-7: 32px;
+  --s-8: 48px;
+  --s-sec: clamp(64px, 9vw, 128px);
+  --s-head: var(--s-8);
 
   color: var(--text);
   background: var(--bg);
@@ -17,6 +65,7 @@
   /* One pairing for the whole page: Geist for anything read as prose, IBM Plex Mono wherever a
      number, an address or a label has to line up. Archivo is left to the desk at /app. */
   font-family: var(--font-screen), var(--sans);
+  font-weight: var(--w-body);
 }
 
 .lp .dcanvas {
@@ -30,39 +79,47 @@
 .lp .wrapx {
   max-width: var(--maxw);
   margin: 0 auto;
-  padding-inline: 24px;
+  padding-inline: var(--s-6);
 }
 
+/* The eyebrow step: the quietest thing in a section, so it sits at --ink-4, the documented AA
+   floor for meta text, rather than at the same ink as the lede two lines below it. */
 .lp .label {
   font-family: var(--mono);
-  font-size: 12px;
-  line-height: 1.35;
+  font-size: var(--t-label);
+  line-height: var(--lh-label);
+  font-weight: var(--w-mark);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--ink-4);
 }
 
 .lp .micro {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--t-micro);
+  line-height: var(--lh-label);
+  font-weight: var(--w-body);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
-  color: var(--dim);
+  color: var(--ink-4);
 }
 
 .lp h2 {
-  font-size: clamp(30px, 3.6vw, 46px);
-  line-height: 1.12;
-  letter-spacing: -0.03em;
-  font-weight: 500;
+  font-family: inherit;
+  font-size: var(--t-h2);
+  line-height: var(--lh-h2);
+  letter-spacing: var(--track-display);
+  font-weight: var(--w-head);
+  color: var(--text);
   margin: 0;
 }
 
 .lp h3 {
-  font-size: 20px;
-  line-height: 1.2;
-  letter-spacing: -0.02em;
-  font-weight: 500;
+  font-family: inherit;
+  font-size: var(--t-h3);
+  line-height: var(--lh-h3);
+  letter-spacing: var(--track-tight);
+  font-weight: var(--w-head);
   margin: 0;
 }
 
@@ -70,117 +127,39 @@
   margin: 0;
 }
 
+/* The third step down: clearly quieter than the headline above it and clearly louder than the
+   module contents below. */
 .lp .lede {
-  font-size: 15px;
-  line-height: 1.6;
+  font-family: inherit;
+  font-size: var(--t-lede);
+  line-height: var(--lh-lede);
+  font-weight: var(--w-body);
   color: var(--ink-3);
   max-width: 48ch;
 }
 
-/* ---------- top rail ---------- */
+/* ---------- top rail ----------
+   The rail lives entirely in rail.css: it is a row of cards now, not a bar of links, and leaving
+   the old plain-link rules here only meant fighting them on specificity. */
 
-/* The rail is absent over the hero and arrives once the hero is behind you. GSAP owns the
-   transform; everything here is the look it arrives with. */
-.lp .rail {
-  position: fixed;
-  inset: 0 0 auto 0;
-  z-index: 40;
-  background: color-mix(in srgb, var(--bg) 82%, transparent);
-  backdrop-filter: blur(14px) saturate(140%);
-  border-bottom: 1px solid var(--line);
-  /* No drop shadow. The rail sits translated off the top of the viewport until it is wanted, and a
-     shadow attached to it paints a dark strip along the very top edge of the hero the whole time. */
-}
-.lp .rail-in {
-  max-width: var(--maxw);
-  margin: 0 auto;
-  padding: 10px 24px;
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  gap: 24px;
-}
-.lp .rail-nav {
-  display: flex;
-  gap: 2px;
-  justify-self: center;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-.lp .rail-nav::-webkit-scrollbar {
-  display: none;
-}
-.lp .rail-nav a {
-  position: relative;
-  font-family: var(--mono);
-  font-size: 11px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--muted);
-  text-decoration: none;
-  padding: 8px 12px;
-  border-radius: 3px;
-  white-space: nowrap;
-  transition:
-    color 140ms ease,
-    background 140ms ease;
-}
-.lp .rail-nav a:hover {
-  color: var(--text);
-  background: var(--panel-2);
-  text-decoration: none;
-}
-/* The section you are actually in, marked by the accent rather than by a colour change alone. */
-.lp .rail-nav a[data-current="true"] {
-  color: var(--text);
-}
-.lp .rail-nav a[data-current="true"]::after {
-  content: "";
-  position: absolute;
-  left: 12px;
-  right: 12px;
-  bottom: 2px;
-  height: 2px;
-  background: var(--accent);
-  border-radius: 2px;
-}
-.lp .rail .btn .cap {
-  height: 34px;
-  padding: 0 16px;
-  font-size: 13px;
-}
-@media (max-width: 860px) {
-  .lp .rail-nav {
-    display: none;
-  }
-  .lp .rail-in {
-    grid-template-columns: auto auto;
-    justify-content: space-between;
-  }
-}
-
-/* The hero carries its own mark, because the rail is not there yet. */
-.lp .hero-brand {
-  color: var(--text);
-  position: absolute;
-  top: 26px;
-  left: 24px;
-  z-index: 3;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  font-weight: 600;
-  letter-spacing: -0.03em;
-  font-size: 18px;
-}
+/* The hero carries its own mark, because the rail is not there yet. The wordmark is the one place
+   the sans runs at --w-mark. */
+.lp .hero-brand,
 .lp .brandmark {
   color: var(--text);
   display: flex;
   align-items: center;
   gap: 9px;
-  font-weight: 600;
-  letter-spacing: -0.03em;
+  font-weight: var(--w-mark);
+  letter-spacing: var(--track-tight);
   font-size: 18px;
+  line-height: 1.2;
+}
+.lp .hero-brand {
+  position: absolute;
+  top: 26px;
+  left: var(--s-6);
+  z-index: 3;
 }
 .lp .brandmark svg {
   display: block;
@@ -299,7 +278,7 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 24px;
+  padding: var(--s-6);
 }
 /* The name, set in dots, standing over the machine. */
 .lp .hero-word {
@@ -356,18 +335,19 @@
   left: 50%;
   bottom: -5%;
   transform: translateX(-50%);
-  padding: 5px 12px;
+  padding: 5px var(--s-3);
   border-radius: 999px;
   background: color-mix(in srgb, var(--bg) 80%, transparent);
   backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--s-2);
   font-family: var(--mono);
-  font-size: 11px;
-  letter-spacing: 0.1em;
+  font-size: var(--t-micro);
+  line-height: var(--lh-label);
+  letter-spacing: var(--track-label);
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--ink-4);
   white-space: nowrap;
   transition: opacity 400ms ease;
   pointer-events: none;
@@ -396,11 +376,11 @@
   max-width: var(--maxw);
   margin: 0 auto;
   width: 100%;
-  padding: 0 24px 28px;
+  padding: 0 var(--s-6) 28px;
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 24px;
+  gap: var(--s-6);
   flex-wrap: wrap;
 }
 .lp .cue {
@@ -415,7 +395,7 @@
   display: block;
   width: 1px;
   height: 34px;
-  background: var(--muted);
+  background: var(--mark-grey);
   transform-origin: top;
   animation: cue 2.2s cubic-bezier(0.2, 0.6, 0.3, 1) infinite;
 }
@@ -434,20 +414,37 @@
 
 /* ---------- sections ---------- */
 
+/* Every band opens and closes on the same beat, so the page keeps one rhythm from the hero to the
+   close whatever is inside a given section. */
 .lp .sec {
   position: relative;
-  border-top: 1px solid var(--line);
-  padding-block: clamp(64px, 9vw, 128px);
+  /* No seam. A section is a band of the page, and the sheet's milled line is a divider drawn
+     INSIDE a panel — run edge to edge it becomes a page-wide hairline that cuts straight across
+     anything floating over it, the rail included. The spacing separates the bands; the bays inside
+     them carry the structure. */
+  padding-block: var(--s-sec);
 }
 .lp .sec-head {
   display: grid;
-  gap: 16px;
-  margin-bottom: 48px;
+  gap: var(--s-3);
+  margin-bottom: var(--s-head);
+}
+/* The markup used to push marginTop/marginBottom into individual sections to separate stacked
+   blocks; it belongs here so the rhythm is the stylesheet's to hold, not the page's. */
+.lp .sec-head > h2 + .lede,
+.lp .surf-head > h2 + .lede {
+  margin-top: var(--s-1);
+}
+.lp .grid + .grid,
+.lp .grid + .terminal,
+.lp .terminal + .grid,
+.lp .mod + .grid {
+  margin-top: var(--s-5);
 }
 
 .lp .grid {
   display: grid;
-  gap: 16px;
+  gap: var(--s-4);
 }
 .lp .g2 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -459,23 +456,31 @@
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
-.lp .mod {
-  border: 1px solid var(--line);
-  background: var(--panel);
-  border-radius: 6px;
-  padding: 24px;
-}
+/* globals.css gives .mod a 16px bottom margin because on the desk a module is a stacked sheet.
+   Inside a grid that margin is dead space under every cell and it was what made the rows on this
+   page sit unevenly; here a module is a grid cell and the gap does the spacing. */
+/* Both are bays: a module holds copy and stands on the page, so it is a part sitting on the panel
+   rather than a hole cut into it. The system has no third, flatter state, so .mod-flat is the same
+   moulding as .mod and differs only in what it carries — the border it used to fake is now the
+   bay's own hairline inset, which is what lets the top highlight sit above it. */
+.lp .mod,
 .lp .mod-flat {
-  border: 1px solid var(--line);
-  background: transparent;
-  border-radius: 6px;
-  padding: 24px;
+  border: 0;
+  border-radius: var(--r-bay);
+  background: var(--bay-face);
+  box-shadow: var(--sh-bay);
+  padding: var(--s-6);
+  margin-bottom: 0;
 }
+/* Sunk: the terminal is a readout cut into the page, so it keeps its dark ground but obeys the same
+   law — a dark inset along the top edge and, along the bottom, a light one held right down, because
+   a white underline at full strength on near-black reads as a join rather than as a lit edge. */
 .lp .terminal {
-  background: #101010;
-  color: #f2f1ee;
-  border-radius: 6px;
-  padding: 24px;
+  background: var(--ink-deep);
+  color: var(--on-ink);
+  border-radius: var(--r-bay);
+  box-shadow: var(--sh-sunk-dark);
+  padding: var(--s-6);
   position: relative;
   overflow: hidden;
 }
@@ -509,43 +514,61 @@
 .lp .kv {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--s-3);
   padding: 6px 0;
-  border-bottom: 1px dotted var(--line);
+  /* A kv is a row, not a box, so it is placed as the hairline between two readings rather than as a
+     bay of its own: the milled line plus the white catch under it. Boxing every row would give the
+     page a stack of sockets where it needs one ruled list. */
+  border-bottom: 1px solid var(--panel-edge);
+  box-shadow: inset 0 -2px 0 -1px #ffffff;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--t-label);
+  line-height: var(--lh-label);
 }
 .lp .kv:last-child {
   border-bottom: 0;
+  box-shadow: none;
+}
+.lp .kv span:first-child {
+  color: var(--ink-4);
 }
 .lp .kv span:last-child {
   color: var(--text);
 }
+/* On the dark ground the same milled line inverts: the hairline darkens and the catch under it is
+   a whisper of white rather than the paper value. */
 .lp .terminal .kv {
   border-bottom-color: #2a2a27;
+  box-shadow: inset 0 -2px 0 -1px rgba(255, 255, 255, 0.06);
 }
 .lp .terminal .kv span:first-child {
   color: #a9a6a0;
 }
 .lp .terminal .kv span:last-child {
-  color: #f2f1ee;
+  color: var(--on-ink);
 }
 
 .lp .figure {
-  font-size: clamp(38px, 5vw, 64px);
+  font-size: var(--t-figure);
   line-height: 0.92;
-  letter-spacing: -0.03em;
-  font-weight: 500;
+  letter-spacing: var(--track-display);
+  font-weight: var(--w-head);
   font-variant-numeric: tabular-nums;
 }
 .lp .figure b {
   color: var(--accent);
 }
 
+/* Sunk: a chart is a display cut into the module that frames it, so it takes the socket ground and
+   the inset pair. It sits inside a bay, so its corner is the tighter --r-inset. */
 .lp .chartbox {
   position: relative;
   height: 148px;
-  margin-top: 16px;
+  margin-top: var(--s-4);
+  border-radius: var(--r-inset);
+  background: var(--socket);
+  box-shadow: var(--sh-sunk);
+  overflow: hidden;
 }
 .lp .chartbox.tall {
   height: 220px;
@@ -556,18 +579,19 @@
   align-items: center;
   gap: 6px;
   font-family: var(--mono);
-  font-size: 11px;
-  letter-spacing: 0.1em;
+  font-size: var(--t-micro);
+  line-height: var(--lh-label);
+  letter-spacing: var(--track-label);
   text-transform: uppercase;
   padding: 5px 10px;
-  border-radius: 2px;
+  border-radius: var(--r-xs);
   background: var(--panel-2);
-  color: var(--muted);
+  color: var(--ink-3);
   border: 1px solid transparent;
 }
 .lp .badge-live {
   background: var(--accent);
-  color: #16120f;
+  color: var(--on-signal);
 }
 .lp .badge-out {
   background: transparent;
@@ -579,157 +603,165 @@
 .lp .surf {
   position: relative;
   overflow: hidden;
-  border-top: 1px solid var(--line);
 }
 .lp .surf-in {
   height: 100svh;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 32px;
+  gap: var(--s-7);
 }
 .lp .surf-head {
   max-width: var(--maxw);
   margin: 0 auto;
-  padding-inline: 24px;
+  padding-inline: var(--s-6);
   width: 100%;
+  display: grid;
+  gap: var(--s-3);
 }
 .lp .surf-track {
   display: flex;
-  gap: 20px;
-  padding-inline: 24px;
+  gap: var(--s-5);
+  padding-inline: var(--s-6);
   width: max-content;
   will-change: transform;
 }
 .lp .step {
   width: min(78vw, 420px);
   flex: none;
-  border: 1px solid var(--line);
-  background: var(--panel);
-  border-radius: 6px;
+  /* A bay: a step is a card of copy that stands on the track. */
+  border: 0;
+  background: var(--bay-face);
+  box-shadow: var(--sh-bay);
+  border-radius: var(--r-bay);
   padding: 28px;
   display: grid;
-  gap: 14px;
+  gap: var(--s-3);
   align-content: start;
   position: relative;
   overflow: hidden;
 }
+/* A step number is a numeral, so it is mono — at --w-mark, because Plex Mono is not loaded any
+   heavier and the old 800 was a synthesised bold. */
 .lp .step .n {
   font-family: var(--mono);
   font-size: 56px;
   line-height: 0.9;
-  font-weight: 800;
-  letter-spacing: -0.04em;
+  font-weight: var(--w-mark);
+  letter-spacing: var(--track-tight);
   color: var(--surface-3);
 }
 .lp .step.hot .n {
   color: var(--accent);
 }
 .lp .step p {
-  color: var(--muted);
-  font-size: 15px;
-  line-height: 1.5;
+  color: var(--ink-3);
+  font-size: var(--t-lede);
+  line-height: var(--lh-body);
 }
 .lp .step .wire {
-  margin-top: 6px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: var(--bg);
-  padding: 12px;
+  margin-top: var(--s-1);
+  /* Sunk: the wire is the machine's own readout inside the step, so it is cut into the step's face
+     at the inner radius rather than stacked on top of it as a second raised card. */
+  border: 0;
+  border-radius: var(--r-inset);
+  background: var(--socket);
+  box-shadow: var(--sh-sunk);
+  padding: var(--s-3);
   font-family: var(--mono);
-  font-size: 11px;
-  color: var(--muted);
+  font-size: var(--t-micro);
+  line-height: var(--lh-label);
+  color: var(--ink-4);
   display: grid;
   gap: 7px;
 }
 .lp .step .wire b {
   color: var(--text);
-  font-weight: 500;
+  font-weight: var(--w-head);
   word-break: break-all;
 }
 
-/* ---------- chain fan-out ---------- */
+/* ---------- chain fan-out / strategies ----------
+   Two cards with the same job: a labelled block of readings. Same box, same rhythm. */
 
-.lp .chain {
-  border: 1px solid var(--line);
-  background: var(--panel);
-  border-radius: 6px;
-  padding: 20px;
+/* Bays, both: a labelled block of readings that stands on the page. Same moulding, same radius, so
+   the two never read as different kinds of part when they sit in adjacent grids. */
+.lp .chain,
+.lp .strat {
+  border: 0;
+  background: var(--bay-face);
+  box-shadow: var(--sh-bay);
+  border-radius: var(--r-bay);
+  padding: var(--s-5);
   display: grid;
-  gap: 10px;
+  gap: var(--s-3);
   align-content: start;
 }
 .lp .chain .addr {
   font-family: var(--mono);
-  font-size: 11px;
-  color: var(--dim);
+  font-size: var(--t-micro);
+  line-height: var(--lh-label);
+  color: var(--ink-4);
   word-break: break-all;
-}
-
-/* ---------- strategies ---------- */
-
-.lp .strat {
-  border: 1px solid var(--line);
-  background: var(--panel);
-  border-radius: 6px;
-  padding: 20px;
-  display: grid;
-  gap: 10px;
-  align-content: start;
 }
 .lp .strat .row {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--s-3);
 }
 .lp .strat .n {
   font-family: var(--mono);
-  font-size: 24px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
+  font-size: var(--t-h3);
+  font-weight: var(--w-mark);
+  letter-spacing: var(--track-tight);
   font-variant-numeric: tabular-nums;
 }
 .lp .strat .n.up {
   color: var(--accent);
 }
 
-/* ---------- close ---------- */
+/* ---------- close ----------
+   The page used to trail off into a centred paragraph on the same paper as everything above it.
+   The close is a landing, so it gets the surface the product band has, the display step, and the
+   heaviest beat on the page. */
 
+/* Raised, but edge to edge: the close is the one band that runs the full width, so it takes the bay
+   gradient and the shell's own edge lighting — white along the top, the panel edge along the
+   bottom — instead of a radius it could not show anyway. */
 .lp .close {
-  border-top: 1px solid var(--line);
-  padding-block: clamp(72px, 11vw, 160px);
+  border-top: 1px solid var(--panel-edge);
+  background: var(--bay-face);
+  box-shadow:
+    inset 0 1px 0 #ffffff,
+    inset 0 -1px 0 var(--panel-edge);
+  padding-block: clamp(96px, 12vw, 176px);
   text-align: center;
   display: grid;
-  gap: 24px;
+  gap: var(--s-6);
   justify-items: center;
 }
+.lp .close h2 {
+  font-size: var(--t-display);
+  line-height: var(--lh-display);
+  letter-spacing: var(--track-display);
+}
+.lp .close .lede {
+  font-size: 17px;
+  max-width: 44ch;
+}
+/* The last rule on the page reads as a rule, not as a stray hairline under a paragraph. */
+/* The footer is a row under a milled line, not a bay: the line is the whole treatment, so it gets
+   the hairline and the white catch and nothing else. */
 .lp footer.foot {
-  border-top: 1px solid var(--line);
-  padding-block: 32px;
+  border-top: 1px solid var(--panel-edge);
+  box-shadow: inset 0 1px 0 #ffffff;
+  padding-block: var(--s-7);
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--s-4);
   flex-wrap: wrap;
-}
-
-@media (max-width: 940px) {
-  .lp .g3,
-  .lp .g4 {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-@media (max-width: 640px) {
-  .lp .g2,
-  .lp .g3,
-  .lp .g4 {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .lp .cue i {
-    animation: none;
-  }
 }
 
 /* ---------- institutional ----------
@@ -737,24 +769,28 @@
    horse. The dark card is a display panel: dot grid, one figure, a bar of lit dots. The light card
    is a moulded gauge: a hatched column that fills in signal, and a reading beside it. */
 .lp .inst {
-  border-top: 0;
   /* The hero's land band and cloud bank hang ~220px into this section; the copy starts below them. */
   padding-top: 300px;
 }
+/* The copy is the subject and the matrix is the ground it stands on, so the copy column takes the
+   majority of the width and the optical centre of the band sits over it. */
 .lp .inst-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
-  gap: 48px;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 0.65fr);
+  gap: var(--s-8);
   align-items: center;
 }
 .lp .inst-horse {
   display: grid;
   place-items: center end;
-  transform: translateX(9vw);
+  transform: translateX(4vw);
+  /* A ceiling on the decoration: it was wider than the copy beside it and at full ink it read as
+     the subject of the band. */
+  opacity: 0.55;
 }
 .lp .inst-horse svg {
-  width: 120%;
-  max-width: 720px;
+  width: 100%;
+  max-width: 460px;
   height: auto;
 }
 /* Lighter than the page's ink: it stands behind the pitch, not in front of it. */
@@ -764,33 +800,37 @@
 .lp .bento {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 18px;
-  margin-top: 40px;
+  gap: var(--s-4);
+  margin-top: var(--s-8);
 }
 .lp .card-dark {
   position: relative;
-  background: #171717;
+  /* Sunk, on a dark ground: the card is a display panel let into the page, so the big ambient cast
+     it used to float on is gone and the inset pair does the work instead. */
+  background: var(--text);
   color: var(--bg);
-  border: 1px solid #2c2b29;
-  border-radius: 22px;
-  padding: 26px 26px 22px;
+  border: 0;
+  border-radius: var(--r-panel);
+  padding: var(--s-6) var(--s-6) var(--s-5);
   background-image: radial-gradient(rgba(255, 255, 255, 0.1) 1.1px, transparent 1.3px);
   background-size: 11px 11px;
-  box-shadow: 0 24px 50px rgba(23, 23, 23, 0.22);
+  box-shadow: var(--sh-sunk-dark);
 }
+/* The figure is drawn as dots, not typed: the box is an SVG holder, so it carries no type size of
+   its own. It used to declare a clamp here and a font-size:0 three hundred lines further down. */
 .lp .card-dark .big {
-  font-size: clamp(72px, 8vw, 128px);
-  font-weight: 800;
-  letter-spacing: -0.06em;
-  line-height: 0.88;
+  font-size: 0;
   margin-top: 10px;
+}
+.lp .card-dark .big circle:not([fill="var(--accent)"]) {
+  fill: var(--on-ink);
 }
 .lp .dotbars {
   display: flex;
   align-items: flex-end;
-  gap: 4px;
+  gap: var(--s-1);
   height: 150px;
-  margin-top: 44px;
+  margin-top: var(--s-8);
 }
 .lp .dotbars i {
   flex: 1;
@@ -805,24 +845,30 @@
   background: var(--accent);
 }
 .lp .card-impact {
-  border: 1.5px solid var(--text);
-  border-radius: 22px;
-  background: var(--bg);
+  /* A bay at shell scale: it holds copy and a gauge and stands beside .card-dark, so the two share
+     the 22px corner. The ink hairlines inside it are kept — they are the gauge's own drawing, not
+     panel seams — but the outer ink border goes, because the bay's hairline inset is the edge now
+     and two edges on one corner is what made this card read as a sticker. */
+  border: 0;
+  border-radius: var(--r-panel);
+  background: var(--bay-face);
   overflow: hidden;
   display: grid;
   grid-template-rows: auto 1fr;
-  box-shadow: 0 24px 50px rgba(23, 23, 23, 0.18);
+  box-shadow: var(--sh-bay);
 }
 .lp .card-impact .head {
   display: grid;
   grid-template-columns: 1fr 92px;
   border-bottom: 1.5px solid var(--text);
 }
+/* The card's own headline runs at the h2 step, not at a size invented for this one card. */
 .lp .card-impact h3 {
-  font-size: clamp(30px, 3vw, 42px);
-  letter-spacing: -0.04em;
-  font-weight: 500;
-  padding: 20px 22px;
+  font-size: clamp(28px, 2.8vw, 40px);
+  line-height: var(--lh-h2);
+  letter-spacing: var(--track-display);
+  font-weight: var(--w-head);
+  padding: var(--s-5) 22px;
 }
 .lp .card-impact .sq {
   border-left: 1.5px solid var(--text);
@@ -846,20 +892,26 @@
 }
 .lp .card-impact .fill {
   flex: 1;
+  /* The lit part of the gauge is a raised fill, so it takes a top highlight too — held to a quarter
+     strength, which is all the signal colour will carry before it turns pink. */
   background: var(--accent);
-  padding: 18px 14px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  padding: var(--s-4) 14px;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
   align-items: flex-start;
   gap: 10px;
 }
+/* A gauge reading: a numeral, so mono and tabular. */
 .lp .card-impact .n {
-  font-size: 60px;
-  font-weight: 500;
-  letter-spacing: -0.05em;
+  font-family: var(--mono);
+  font-size: 56px;
+  font-weight: var(--w-head);
+  letter-spacing: var(--track-display);
   line-height: 1;
   color: var(--text);
+  font-variant-numeric: tabular-nums;
 }
 .lp .card-impact .u {
   width: 40px;
@@ -870,11 +922,11 @@
   display: grid;
   place-items: center;
   font-family: var(--mono);
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--t-label);
+  font-weight: var(--w-mark);
 }
 .lp .card-impact .pane {
-  padding: 20px 22px 22px;
+  padding: var(--s-5) 22px 22px;
   display: flex;
   flex-direction: column;
 }
@@ -882,30 +934,22 @@
   display: flex;
   justify-content: space-between;
   font-family: var(--mono);
-  font-size: 12px;
-  letter-spacing: 0.06em;
-  color: var(--text);
+  font-size: var(--t-label);
+  letter-spacing: var(--track-label);
+  color: var(--ink-2);
 }
 .lp .card-impact h4 {
   margin: auto 0 0;
-  font-size: 22px;
-  font-weight: 500;
-  letter-spacing: -0.02em;
+  font-size: var(--t-h3);
+  line-height: var(--lh-h3);
+  font-weight: var(--w-head);
+  letter-spacing: var(--track-tight);
 }
 .lp .card-impact .pane p {
-  color: var(--muted);
-  font-size: 14px;
-  line-height: 1.5;
-  margin-top: 8px;
-}
-@media (max-width: 960px) {
-  .lp .inst-grid,
-  .lp .bento {
-    grid-template-columns: 1fr;
-  }
-  .lp .inst-horse {
-    order: -1;
-  }
+  color: var(--ink-3);
+  font-size: var(--t-body);
+  line-height: var(--lh-body);
+  margin-top: var(--s-2);
 }
 
 /* ---------- the product band ----------
@@ -913,8 +957,12 @@
    plain-language explanation of the product. Geist rather than Archivo throughout: the band is
    instrumentation the reader studies, not a headline they glance at. */
 
+/* The band no longer paints itself. It used to carry a full-bleed panel behind a slab that has
+   since been deleted, which left a coloured rectangle with nothing in it; the strip below is the
+   only content, so the section returns to the page surface and its height is set by that strip
+   rather than by a section beat sized for a block that is gone. */
 .lp .sim {
-  background: var(--panel);
+  padding-block: var(--s-8);
 }
 
 /* -- the strip -- */
@@ -922,37 +970,49 @@
 .lp .dotstrip {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(0, 0.9fr);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--bg);
+  /* A bay: one bordered region milled into the page, which is what this band needed to become once
+     the section stopped painting a panel behind it. */
+  border: 0;
+  border-radius: var(--r-bay);
+  background: var(--bay-face);
+  box-shadow: var(--sh-bay);
   overflow: hidden;
 }
+/* The cells are not boxes, they are regions of the one bay divided by milled lines, so each divider
+   is the hairline plus the white catch beside it. --cell-edge carries that catch as a value rather
+   than a rule so the folded layouts can move it from the left edge to the top without any cell
+   losing the socket shadow it also needs. */
 .lp .dotstrip .cell {
+  --cell-edge: inset 1px 0 0 #ffffff;
   display: grid;
   align-content: space-between;
-  gap: 28px;
-  padding: 22px 24px;
+  gap: var(--s-7);
+  padding: 22px var(--s-6);
   min-height: 190px;
-  border-left: 1px solid var(--line);
+  border-left: 1px solid var(--panel-edge);
+  box-shadow: var(--cell-edge);
 }
 .lp .dotstrip .cell:first-child {
   border-left: 0;
+  --cell-edge: 0 0 0 0 transparent;
 }
-/* The mark line: the emblem at a coarse matrix beside the name of what produced the figure. */
+/* The mark line: the emblem at a coarse matrix beside the name of what produced the figure. Prose,
+   so it stays in the screen sans; only the reading below it is set in dots. */
 .lp .dotstrip .mark {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  letter-spacing: -0.01em;
-  color: var(--ink-3);
+  gap: var(--s-2);
+  font-size: var(--t-label);
+  line-height: var(--lh-label);
+  letter-spacing: var(--track-tight);
+  color: var(--ink-4);
 }
 .lp .dotstrip .mark svg {
   flex: none;
 }
 .lp .dotstrip .cap {
   font-size: 13px;
-  line-height: 1.35;
+  line-height: var(--lh-label);
   color: var(--ink-3);
   max-width: 24ch;
 }
@@ -961,14 +1021,20 @@
 }
 
 /* The last cell is the ask, not a reading: prose and one key. */
+/* The ask is the one cell that is cut in rather than ruled off: it holds a key, and on the sheet a
+   key always sits in a socket rather than on bare panel. */
 .lp .dotstrip .cta {
-  background: var(--panel);
+  background: var(--socket);
+  box-shadow: var(--cell-edge), var(--sh-sunk);
   align-content: start;
-  gap: 18px;
+  /* The cell is a grid, so a key left to itself stretches the full column and stops reading as a
+     key at all. It takes its own width, at the left edge with the copy above it. */
+  justify-items: start;
+  gap: var(--s-4);
 }
 .lp .dotstrip .cta p {
   font-size: 13px;
-  line-height: 1.5;
+  line-height: var(--lh-body);
   color: var(--ink-2);
 }
 
@@ -976,92 +1042,10 @@
    desk at /app keeps the moulded mono cap; this only reaches the keys inside .lp. */
 .lp .btn .cap {
   font-family: inherit;
-  font-size: 14px;
-  letter-spacing: -0.01em;
+  font-size: var(--t-body);
+  letter-spacing: var(--track-tight);
   text-transform: none;
-  font-weight: 500;
-}
-
-/* -- the slab -- */
-
-.lp .sim-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 32px;
-  align-items: center;
-  margin-top: 64px;
-}
-.lp .sim-copy {
-  display: grid;
-  justify-items: start;
-  gap: 28px;
-}
-.lp .sim-h {
-  font-family: inherit;
-  font-size: clamp(30px, 3.6vw, 46px);
-  line-height: 1.12;
-  letter-spacing: -0.03em;
-  font-weight: 500;
-  margin: 0;
-}
-/* The lines the eye is meant to slide over sit back; the phrase that carries the claim stays ink. */
-.lp .sim-h .fade {
-  color: #a3a09a;
-}
-.lp .sim-lede {
-  font-size: 15px;
-  line-height: 1.6;
-  color: var(--ink-3);
-  max-width: 46ch;
-}
-
-/* The field: the emblem at a coarse matrix, held back to the weight of a watermark so the copy
-   still leads. Clipped rather than scaled down, so the dots stay the size they are in the strip. */
-.lp .sim-field {
-  display: grid;
-  place-items: center;
-  overflow: hidden;
-  min-height: 340px;
-}
-.lp .sim-field svg {
-  width: 120%;
-  max-width: 760px;
-  height: auto;
-}
-.lp .sim-field circle:not([fill="var(--accent)"]) {
-  fill: #c2bfb8;
-}
-
-@media (max-width: 1040px) {
-  .lp .dotstrip {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .lp .dotstrip .cell:nth-child(odd) {
-    border-left: 0;
-  }
-  .lp .dotstrip .cell:nth-child(n + 3) {
-    border-top: 1px solid var(--line);
-  }
-}
-@media (max-width: 860px) {
-  .lp .sim-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .lp .sim-field {
-    min-height: 240px;
-  }
-}
-@media (max-width: 560px) {
-  .lp .dotstrip {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .lp .dotstrip .cell {
-    border-left: 0;
-    min-height: 0;
-  }
-  .lp .dotstrip .cell + .cell {
-    border-top: 1px solid var(--line);
-  }
+  font-weight: var(--w-head);
 }
 
 /* ---------- stat cards ----------
@@ -1071,40 +1055,164 @@
 .lp .statcard {
   display: grid;
   align-content: start;
-  gap: 20px;
+  gap: var(--s-5);
   min-height: 190px;
 }
+/* The figure is an SVG of dots; the box holds no type of its own.
+   Sunk, like every other reading on this page: the sheet's law is that a display is cut into the
+   part that frames it, so the dot figure sits in the socket at the inner radius and receives the
+   inset pair, rather than floating on the bay face as loose ink. */
 .lp .statcard .figure {
   font-size: 0;
+  border-radius: var(--r-inset);
+  background: var(--socket);
+  box-shadow: var(--sh-sunk);
+  padding: var(--s-4) var(--s-5);
 }
 .lp .statcard .lede {
   align-self: end;
 }
+/* Still a bay, filled in signal: the highlight that reads as white on paper is held to a third here
+   so the accent stays the accent, and the cast stays the same length as its unlit siblings'. */
 .lp .statcard.hot {
   background: var(--accent);
-  border-color: var(--accent);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.32),
+    inset 0 0 0 1px rgba(90, 25, 0, 0.16),
+    0 1px 2px rgba(40, 34, 28, 0.07);
 }
 .lp .statcard.hot .label {
-  color: #16120f;
+  color: var(--on-signal);
   opacity: 0.7;
 }
 .lp .statcard.hot .lede {
-  color: #16120f;
+  color: var(--on-signal);
 }
 /* On the signal fill the dots are ink; the accent full stop would vanish, so it goes ink too. */
 .lp .statcard.hot .figure circle {
-  fill: #16120f;
+  fill: var(--on-signal);
 }
-
-/* The dark card reads out in paper-coloured dots, with the brand's full stop still in signal. */
-.lp .card-dark .big circle:not([fill="var(--accent)"]) {
-  fill: var(--on-ink);
-}
-.lp .card-dark .big {
-  font-size: 0;
+/* The same cut read on the signal ground: the socket cannot be the paper grey there, so it is the
+   accent shaded down and the catch under it is held to a whisper. */
+.lp .statcard.hot .figure {
+  background: rgba(90, 25, 0, 0.14);
+  box-shadow:
+    inset 0 2px 5px rgba(70, 18, 0, 0.3),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.18);
 }
 
 /* A strategy reading is a figure, so it is set the same way. */
 .lp .strat .n svg {
   display: block;
+}
+
+/* ---------- breakpoints ----------
+   Three, and only three: 1024 is where three and four columns stop fitting, 768 is where the
+   asymmetric bands fold and the decoration goes under the copy, 560 is where everything is one
+   column. The rail keeps its own two in rail.css, because its collapse is about the cards fitting
+   on one line, not about the grid. */
+
+@media (max-width: 1024px) {
+  .lp .g3,
+  .lp .g4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .lp .dotstrip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .lp .dotstrip .cell:nth-child(odd) {
+    border-left: 0;
+    --cell-edge: 0 0 0 0 transparent;
+  }
+  .lp .dotstrip .cell:nth-child(n + 3) {
+    border-top: 1px solid var(--panel-edge);
+    --cell-edge: inset 0 1px 0 #ffffff;
+  }
+  /* The last cell keeps both dividers once the strip folds to two columns, so it keeps both catches. */
+  .lp .dotstrip .cell:nth-child(4) {
+    --cell-edge: inset 1px 0 0 #ffffff, inset 0 1px 0 #ffffff;
+  }
+}
+
+@media (max-width: 768px) {
+  .lp .inst-grid,
+  .lp .bento {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  /* Folded, the matrix leads the band instead of standing beside it, so it is held back further
+     still and stops dragging the copy off the optical centre. */
+  .lp .inst-horse {
+    order: -1;
+    place-items: center;
+    transform: none;
+    opacity: 0.4;
+  }
+  .lp .inst-horse svg {
+    max-width: 320px;
+  }
+  .lp .card-impact .body {
+    min-height: 240px;
+  }
+}
+
+@media (max-width: 560px) {
+  .lp .g2,
+  .lp .g3,
+  .lp .g4,
+  .lp .dotstrip {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .lp .dotstrip .cell {
+    border-left: 0;
+    --cell-edge: 0 0 0 0 transparent;
+    min-height: 0;
+    gap: var(--s-5);
+  }
+  .lp .dotstrip .cell + .cell {
+    border-top: 1px solid var(--panel-edge);
+    --cell-edge: inset 0 1px 0 #ffffff;
+  }
+  .lp .wrapx,
+  .lp .surf-head,
+  .lp .surf-track,
+  .lp .hero-foot {
+    padding-inline: var(--s-5);
+  }
+  .lp .mod,
+  .lp .mod-flat,
+  .lp .terminal {
+    padding: var(--s-5);
+  }
+  /* The gauge column and its numeral both have to shrink or the card scrolls sideways. */
+  .lp .card-impact .body {
+    grid-template-columns: 88px 1fr;
+  }
+  .lp .card-impact .n {
+    font-size: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lp .cue i {
+    animation: none;
+  }
+}
+
+/* ---------- dot type set as a title ----------
+   DotText writes an intrinsic width and height onto its svg, which is right for a figure sitting in
+   a fixed cell and wrong for a heading: at 560px the attribute wins and the title runs off the
+   page. Titles therefore take the width they are given and keep their own ratio. */
+
+.lp h2 svg[role="img"],
+.lp .step .n svg[role="img"] {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+}
+
+/* A heading in dots has no font metrics to sit on, so the line box collapses onto the glyphs. The
+   own-line spacing the type scale would have given it is restored here instead. */
+.lp h2:has(> svg[role="img"]) {
+  line-height: 0;
 }

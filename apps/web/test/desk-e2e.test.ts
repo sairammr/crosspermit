@@ -5,6 +5,8 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { privateKeyToAccount } from "viem/accounts";
 
+import { reset } from "../src/desk/db";
+
 const A = privateKeyToAccount("0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d");
 const B = privateKeyToAccount("0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba");
 const CLIENT = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
@@ -56,31 +58,21 @@ const upstream = Bun.serve({
   },
 });
 
-let proc: ReturnType<typeof Bun.spawn>;
-const db = `/tmp/desk-e2e-${Date.now()}.sqlite`;
+let desk: ReturnType<typeof Bun.serve>;
 
 beforeAll(async () => {
-  proc = Bun.spawn(["bun", `${import.meta.dir}/../src/server.ts`], {
-    env: {
-      ...process.env,
-      DESK_PORT: String(DESK),
-      DESK_DB: db,
-      RELAYER_URL: `http://localhost:${UP}`,
-      RELAYER_API_KEY: "upstream-secret",
-      DESK_INSECURE_COOKIE: "1",
-    },
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  for (let i = 0; i < 100; i++) {
-    if (await fetch(`${base}/healthz`).then((r) => r.ok, () => false)) return;
-    await Bun.sleep(50);
-  }
-  throw new Error("desk layer did not come up");
+  process.env.RELAYER_URL = `http://localhost:${UP}`;
+  process.env.RELAYER_API_KEY = "upstream-secret";
+  process.env.DESK_INSECURE_COOKIE = "1";
+  await reset("file::memory:");
+  // Imported after the env is set: `upstream.ts` reads RELAYER_URL at module load, exactly as it
+  // does in the app, and importing it earlier would bind it to the default.
+  const { handle } = await import("../src/desk/handler");
+  desk = Bun.serve({ port: DESK, idleTimeout: 60, fetch: handle });
 });
 
 afterAll(() => {
-  proc?.kill();
+  desk?.stop(true);
   upstream.stop(true);
 });
 

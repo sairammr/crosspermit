@@ -43,14 +43,37 @@
   --bad: var(--alert-ink);
   --link: var(--text);
 
+  /* ---------- console material ----------
+     The law of light, written once for the whole product: it comes from above, once. A part that
+     sits on the panel takes a white inset along its top edge and casts a short shadow below it; a
+     part cut into the panel takes a dark inset along its top edge and a light one along its bottom.
+     Nothing is allowed to be both or neither, so every container on a desk screen picks one of
+     --sh-bay or --sh-sunk. --sh-sunk-dark is the same cut read on the two dark grounds, where a
+     full-strength white underline would look like a seam.
+     These moved here from landing.css: the desk is the same hardware, so it is the same sheet. */
+  --bay-hi: #fbfaf9;
+  --bay-lo: #eeece7;
+  --panel-edge: #d8cfca;
+  --socket: #e8e7e3;
+  --bay-face: linear-gradient(180deg, var(--bay-hi), var(--bay-lo));
+  --sh-bay: inset 0 1px 0 #ffffff, inset 0 0 0 1px rgba(120, 110, 95, 0.1), 0 1px 2px rgba(40, 34, 28, 0.07);
+  --sh-sunk: inset 0 2px 5px rgba(40, 30, 20, 0.2), inset 0 -1px 0 rgba(255, 255, 255, 0.6);
+  --sh-sunk-dark: inset 0 2px 6px rgba(0, 0, 0, 0.55), inset 0 -1px 0 rgba(255, 255, 255, 0.07);
+
   /* Type */
   --mono: var(--font-mono), ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
   --sans: var(--font-ui), "Helvetica Neue", Helvetica, Arial, sans-serif;
   --track-label: 0.08em;
-  /* Radius: near-square by doctrine */
+  /* Radius. The near-square steps are kept for marks and tags, where a 14px corner on a 20px chip
+     would be a lozenge; everything that is a part on the panel takes one of the console's three:
+     a shell-scale card at 22, a bay at 14, and a readout cut inside a bay at 10 so its corner
+     reads as tighter than the corner holding it. */
   --r-xs: 2px;
   --r-sm: 4px;
   --r-md: 6px;
+  --r-panel: 22px;
+  --r-bay: 14px;
+  --r-inset: 10px;
   --ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
   --dur: 140ms;
   --ease: cubic-bezier(0.2, 0.6, 0.3, 1);
@@ -177,17 +200,6 @@ code {
   padding: 0 24px 80px;
 }
 
-/* The desk rail: brandmark, tab nav, wallet. */
-header.top {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  gap: 24px;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--line);
-  margin-bottom: 24px;
-}
-
 .brandmark {
   display: flex;
   align-items: center;
@@ -206,66 +218,30 @@ header.top {
   display: block;
 }
 
-nav.tabs {
-  display: flex;
-  gap: 24px;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-nav.tabs::-webkit-scrollbar {
-  display: none;
-}
-nav.tabs button,
-.tab {
-  background: none;
-  border: 0;
-  padding: 10px 0;
-  cursor: pointer;
-  font-family: var(--mono);
-  font-size: 12px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--ink-4);
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-  white-space: nowrap;
-}
-nav.tabs button:hover,
-.tab:hover {
-  color: var(--text);
-}
-nav.tabs button[aria-selected="true"],
-.tab[aria-selected="true"] {
-  color: var(--text);
-  border-bottom-color: var(--accent);
-}
-
-@media (max-width: 860px) {
-  header.top {
-    grid-template-columns: auto auto;
-    justify-content: space-between;
-  }
-  header.top nav.tabs {
-    grid-column: 1 / -1;
-    grid-row: 2;
-  }
-}
+/* The tab nav that used to live here is gone: the desk wears the same key bank as the landing,
+   and a screen you are on is the key that is held down. See rail.css. */
 
 /* ---------- 5. LAYOUT ---------- */
 
-/* module = the sheet's bordered block */
+/* module = a bay: a part that stands on the panel, so it takes the bay face, the hairline inset
+   that replaced its border, and the short cast. The 1px line it used to carry is now the inset
+   itself, which is what lets the white top edge sit above it. */
 .panel,
 .mod {
-  border: 1px solid var(--line);
-  background: var(--panel);
-  border-radius: var(--r-md);
+  border: 0;
+  background: var(--bay-face);
+  box-shadow: var(--sh-bay);
+  border-radius: var(--r-bay);
   padding: 24px;
   margin-bottom: 16px;
 }
+/* The system has no third, flatter state. A flat module is the same moulding and differs only in
+   what it carries. */
 .mod-flat {
-  border: 1px solid var(--line);
-  background: transparent;
-  border-radius: var(--r-md);
+  border: 0;
+  background: var(--bay-face);
+  box-shadow: var(--sh-bay);
+  border-radius: var(--r-bay);
   padding: 24px;
 }
 .panel > .label,
@@ -342,12 +318,16 @@ nav.tabs button[aria-selected="true"],
   gap: 12px;
   padding: 5px 0;
   margin: 0;
-  border-bottom: 1px dotted var(--line);
+  /* A row, not a box: the milled hairline plus the white catch under it, which is how the sheet
+     rules a list of readings. Dotted was a border style, not a part. */
+  border-bottom: 1px solid var(--panel-edge);
+  box-shadow: inset 0 -2px 0 -1px #ffffff;
   font-family: var(--mono);
   font-size: 12px;
 }
 .kv:last-child {
   border-bottom: 0;
+  box-shadow: none;
 }
 .kv dt,
 .kv dd {
@@ -358,11 +338,14 @@ nav.tabs button[aria-selected="true"],
 }
 
 /* stat = inset figure: micro key, mono value, prose note */
+/* Sunk: a stat is a reading cut into the bay that frames it, so it takes the socket ground, the
+   inset pair, and the tighter inner corner. */
 .stat {
-  border: 1px solid var(--line);
-  border-radius: var(--r-sm);
+  border: 0;
+  border-radius: var(--r-inset);
   padding: 14px 16px;
-  background: var(--panel-2);
+  background: var(--socket);
+  box-shadow: var(--sh-sunk);
 }
 .stat .k {
   font-family: var(--mono);
@@ -384,6 +367,20 @@ nav.tabs button[aria-selected="true"],
   font-size: 12px;
   line-height: 1.45;
   margin-top: 4px;
+}
+/* A reading that is itself the warning. The tint is held very low — a socket is still a socket,
+   and a dashboard where two of four tiles are coloured has told you nothing. */
+.stat-warn {
+  background: var(--signal-wash);
+}
+.stat-warn .n {
+  color: var(--accent-dim);
+}
+.stat-bad {
+  background: var(--alert-wash);
+}
+.stat-bad .n {
+  color: var(--alert-ink);
 }
 
 @media (max-width: 900px) {
@@ -582,9 +579,12 @@ textarea,
 .select {
   height: 44px;
   width: 100%;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--r-sm);
+  /* Sunk: a field is a slot milled into the panel for the reader to put something in, so it takes
+     the socket ground and the inset pair rather than a drawn box. */
+  background: var(--socket);
+  border: 0;
+  box-shadow: var(--sh-sunk);
+  border-radius: var(--r-inset);
   padding: 0 12px;
   color: var(--text);
   font-family: var(--mono);
@@ -599,21 +599,27 @@ input::placeholder,
 textarea::placeholder {
   color: var(--ink-4);
 }
+/* The slot deepens on hover and takes a signal rim on focus. The inset pair is repeated in each
+   state rather than dropped, or a focused field would pop out of the panel it is cut into. */
 input:hover,
 select:hover,
 textarea:hover {
-  border-color: var(--ink-4);
+  box-shadow: inset 0 2px 6px rgba(40, 30, 20, 0.26), inset 0 -1px 0 rgba(255, 255, 255, 0.6);
 }
 input:focus,
 select:focus,
 textarea:focus {
   outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--signal-wash);
+  box-shadow:
+    var(--sh-sunk),
+    inset 0 0 0 1px var(--accent),
+    0 0 0 3px var(--signal-wash);
 }
 input[aria-invalid="true"] {
-  border-color: var(--alert);
-  box-shadow: 0 0 0 3px var(--alert-wash);
+  box-shadow:
+    var(--sh-sunk),
+    inset 0 0 0 1px var(--alert),
+    0 0 0 3px var(--alert-wash);
 }
 select {
   appearance: none;

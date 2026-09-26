@@ -18,6 +18,7 @@ import { useAccount, useDisconnect, useReadContracts, useSignTypedData, useSwitc
 import { SIGNING_CHAIN_ID, approveEntry, crossPermitAbi, prepareIntent, toWire } from "@crosspermit/sdk";
 import { type ClientMandate, linkMandate, useMandate } from "../../../src/clients";
 import { CHAINS, CROSS_PERMIT, type ChainInfo, chainById } from "../../../src/config";
+import { poolOn } from "../../../src/pools";
 import { HorseMatrix } from "../../../src/dithergraph";
 import { postIntent, useIntentStream } from "../../../src/relayer";
 import { onSigningChain, openAppKit } from "../../../src/wagmi";
@@ -180,7 +181,13 @@ function Grant({ client, token, onLinked }: { client: ClientMandate; token: stri
         const units = unitsFor(h.i);
         if (!units) return null;
         const leg = byChain.get(h.chain.id) ?? { chainId: h.chain.id, permits: [] };
+        // Both venues the desk can reach on this chain, in the one signature. The router is how a
+        // mandate trades; the LiquidityDesk is how it provides liquidity. Granting only the router
+        // was what forced the client to sign a second time before the desk could allocate — which
+        // is the thing this product exists to remove.
         leg.permits.push(approveEntry(h.token, h.chain.router, units, expiry));
+        const desk = poolOn(h.chain.id)?.liquidityDesk;
+        if (desk) leg.permits.push(approveEntry(h.token, desk, units, expiry));
         byChain.set(h.chain.id, leg);
       }
       return prepareIntent({
@@ -456,7 +463,12 @@ function Grant({ client, token, onLinked }: { client: ClientMandate; token: stri
             <Row
               k="Granting"
               v={ready ? `${chosen.length} token${chosen.length === 1 ? "" : "s"} · ${chains.length} chain${chains.length === 1 ? "" : "s"}` : "—"}
-              m="to the Uniswap Universal Router · exact amounts, not unlimited"
+              m="to the Uniswap Universal Router and the v4 LiquidityDesk · exact amounts, not unlimited"
+            />
+            <Row
+              k="Spenders"
+              v={ready ? `${chains.filter((id) => poolOn(id)).length ? "2" : "1"} per chain` : "—"}
+              m="Universal Router, for trading · LiquidityDesk, to provide liquidity in a v4 pool. Each gets the same cap and the same expiry, and neither can move anything anywhere else."
             />
             <Row
               k="Merkle root"

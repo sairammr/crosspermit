@@ -380,17 +380,19 @@ export function DotText({ text, size = 72, className }: { text: string; size?: n
     >
       {chars.map((ch, i) =>
         (DOT_GLYPHS[ch] ?? DOT_GLYPHS[" "]!).flatMap((row, r) =>
-          row.split("").map((cell, c) =>
-            cell === "#" ? (
-              <circle
-                key={`${i}-${r}-${c}`}
-                cx={i * 6 + c + 0.5}
-                cy={r + 0.5}
-                r={0.4}
-                fill={ch === "." ? "var(--accent)" : "var(--text)"}
-              />
-            ) : null,
-          ),
+          row
+            .split("")
+            .map((cell, c) =>
+              cell === "#" ? (
+                <circle
+                  key={`${i}-${r}-${c}`}
+                  cx={i * 6 + c + 0.5}
+                  cy={r + 0.5}
+                  r={0.4}
+                  fill={ch === "." ? "var(--accent)" : "var(--text)"}
+                />
+              ) : null,
+            ),
         ),
       )}
     </svg>

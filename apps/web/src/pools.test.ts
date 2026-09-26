@@ -1,8 +1,19 @@
 import { expect, test } from "bun:test";
 
-import { POOLS, decodeSlot0, liquidityForAmounts, liquiditySlot, poolId, poolStateSlot, poolsForToken } from "./pools";
+import {
+  POOLS,
+  decodeSlot0,
+  liquidityForAmounts,
+  liquiditySlot,
+  poolId,
+  poolStateSlot,
+  poolsForToken,
+  rangeAt,
+} from "./pools";
 
-const base = POOLS.find((p) => p.chainId === 84532)!;
+// The seeded Base pool specifically: the storage-layout assertions below were checked against that
+// deployment, and the list now leads with Uniswap's own pool on the same chain.
+const base = POOLS.find((p) => p.chainId === 84532 && p.source === "seeded")!;
 
 // Both values were computed independently with `cast keccak` against the deployed Base Sepolia
 // pool, and the liquidity slot below reads back the exact 1e12 the seeder put in. If the storage
@@ -41,4 +52,24 @@ test("liquidity is capped by whichever side runs out first", () => {
 test("every approved test token maps to exactly one pool per chain", () => {
   expect(poolsForToken(base.key.currency0)).toHaveLength(1);
   expect(poolsForToken("0x0000000000000000000000000000000000000001")).toHaveLength(0);
+});
+
+// The two invariants LiquidityDesk cannot survive being wrong about: it settles with
+// `CrossPermit.transferFrom`, so neither side may be native ETH, and it calls `modifyLiquidity`
+// itself, so a hook that gates the caller would revert every allocation.
+test("every listed pool is hookless and has two ERC20 sides", () => {
+  for (const p of POOLS) {
+    expect(p.key.hooks).toBe("0x0000000000000000000000000000000000000000");
+    expect(p.key.currency0).not.toBe("0x0000000000000000000000000000000000000000");
+    expect(BigInt(p.key.currency0)).toBeLessThan(BigInt(p.key.currency1));
+  }
+});
+
+test("the offered range straddles the pool's tick and lands on the spacing", () => {
+  const uni = POOLS.find((p) => p.source === "uniswap")!;
+  const { tickLower, tickUpper } = rangeAt(uni, -196_419);
+  expect(Math.abs(tickLower % uni.key.tickSpacing)).toBe(0);
+  expect(Math.abs(tickUpper % uni.key.tickSpacing)).toBe(0);
+  expect(tickLower).toBeLessThan(-196_419);
+  expect(tickUpper).toBeGreaterThan(-196_419);
 });

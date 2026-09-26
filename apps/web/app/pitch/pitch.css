@@ -1,0 +1,379 @@
+/* ============================================================
+   PITCH — the deck. TradeFi Treasury design system, presented.
+
+   Scoped under .lp on purpose: the landing page's type scale, spacing scale and module rules are
+   the design system, and a deck that re-set them would drift from the product it is pitching.
+   Everything here is layout for one constraint the landing page does not have — a slide must fit a
+   projector in one screen, without scrolling, at 3 minutes a deck.
+   ============================================================ */
+
+.lp.deck {
+  height: 100dvh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scroll-snap-type: y mandatory;
+  scroll-behavior: smooth;
+  scrollbar-width: none;
+}
+.lp.deck::-webkit-scrollbar {
+  display: none;
+}
+
+/* A slide is a screen. min-height rather than height so a dense architecture slide can grow on a
+   phone instead of clipping its own diagram — the snap point stays at its top either way. */
+.lp .slide {
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  min-height: 100dvh;
+  display: grid;
+  align-content: center;
+  padding-block: clamp(56px, 7vh, 96px);
+  border-top: 1px solid var(--line);
+  position: relative;
+}
+.lp .slide:first-of-type {
+  border-top: 0;
+}
+.lp .slide.ink {
+  background: var(--ink-deep);
+  color: var(--on-ink);
+}
+.lp .slide.ink h2,
+.lp .slide.ink h3 {
+  color: var(--on-ink);
+}
+.lp .slide.ink .lede,
+.lp .slide.ink p {
+  color: #b6b3ad;
+}
+.lp .slide.ink .label,
+.lp .slide.ink .micro {
+  color: #a9a6a0;
+}
+.lp .slide.ink .mod,
+.lp .slide.ink .mod-flat {
+  border-color: #2a2a27;
+  background: #171715;
+}
+.lp .slide.ink .kv {
+  border-bottom-color: #2a2a27;
+}
+.lp .slide.ink .kv span:first-child {
+  color: #a9a6a0;
+}
+.lp .slide.ink .kv span:last-child {
+  color: var(--on-ink);
+}
+
+/* The slide's own head: number, running time, title, one lede. The time is on every slide because
+   a deck that does not carry its own clock is a deck that runs four minutes. */
+.lp .slide-head {
+  display: grid;
+  gap: var(--s-3);
+  margin-bottom: var(--s-7);
+}
+.lp .slide-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  flex-wrap: wrap;
+}
+.lp .slide-meta .clock {
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--accent-dim);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xs);
+  padding: 3px 8px;
+}
+.lp .slide.ink .slide-meta .clock {
+  color: var(--accent);
+  border-color: #2a2a27;
+}
+
+/* ---------- 01 title ---------- */
+
+.lp .deck-title {
+  display: grid;
+  justify-items: center;
+  text-align: center;
+  gap: var(--s-5);
+}
+.lp .deck-title h1 {
+  font-family: inherit;
+  font-size: var(--t-display);
+  line-height: var(--lh-display);
+  letter-spacing: var(--track-display);
+  font-weight: var(--w-head);
+  margin: 0;
+}
+.lp .deck-title .hook {
+  font-size: clamp(17px, 2vw, 22px);
+  line-height: 1.45;
+  color: var(--ink-2);
+  max-width: 58ch;
+}
+.lp .deck-title .hook b {
+  color: var(--accent-dim);
+  font-weight: var(--w-mark);
+}
+
+/* ---------- the architecture diagram ---------- */
+
+.lp .diagram {
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--panel);
+  padding: var(--s-6);
+  overflow-x: auto;
+}
+.lp .slide.ink .diagram {
+  background: #171715;
+  border-color: #2a2a27;
+}
+.lp .diagram svg {
+  display: block;
+  width: 100%;
+  min-width: 720px;
+  height: auto;
+}
+/* One stroke weight, one type size, two inks: the diagram is a drawing, not a second palette. */
+.lp .diagram .bx {
+  fill: var(--panel-2);
+  stroke: var(--mark-grey);
+  stroke-width: 1;
+}
+.lp .diagram .bx.sig {
+  fill: var(--signal-wash);
+  stroke: var(--accent);
+}
+.lp .diagram .bx.dk {
+  fill: var(--ink-deep);
+  stroke: var(--ink-deep);
+}
+.lp .diagram .t {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  fill: var(--text);
+}
+.lp .diagram .t.on-dk {
+  fill: var(--on-ink);
+}
+.lp .diagram .t.sm {
+  font-size: 9.5px;
+  fill: var(--ink-4);
+}
+.lp .diagram .wire {
+  stroke: var(--mark-grey);
+  stroke-width: 1;
+  fill: none;
+}
+.lp .diagram .wire.sig {
+  stroke: var(--accent);
+  stroke-width: 1.5;
+}
+.lp .diagram .wire.dash {
+  stroke-dasharray: 3 3;
+}
+
+/* ---------- numbered step rows (the flow slides) ---------- */
+
+.lp .steps {
+  display: grid;
+  gap: var(--s-3);
+  counter-reset: step;
+}
+.lp .steprow {
+  display: grid;
+  grid-template-columns: 34px 1fr;
+  gap: var(--s-4);
+  align-items: start;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--panel);
+  padding: var(--s-4) var(--s-5);
+}
+.lp .slide.ink .steprow {
+  background: #171715;
+  border-color: #2a2a27;
+}
+.lp .steprow > .n {
+  font-family: var(--mono);
+  font-size: var(--t-label);
+  font-weight: var(--w-mark);
+  letter-spacing: var(--track-label);
+  color: var(--accent-dim);
+  padding-top: 2px;
+}
+.lp .slide.ink .steprow > .n {
+  color: var(--accent);
+}
+.lp .steprow h3 {
+  font-size: 15px;
+  margin-bottom: 4px;
+}
+.lp .steprow p {
+  font-size: var(--t-body);
+  line-height: var(--lh-body);
+  color: var(--ink-3);
+  max-width: 88ch;
+}
+.lp .slide.ink .steprow p {
+  color: #b6b3ad;
+}
+.lp .steprow code {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: var(--panel-2);
+  border-radius: var(--r-xs);
+  padding: 1px 4px;
+}
+.lp .slide.ink .steprow code {
+  background: #23231f;
+  color: #e8e7e3;
+}
+
+/* ---------- the demo script ---------- */
+
+.lp .beat {
+  display: grid;
+  grid-template-columns: 76px 1fr;
+  gap: var(--s-4);
+  padding: var(--s-4) 0;
+  border-bottom: 1px dotted var(--line);
+}
+.lp .beat:last-child {
+  border-bottom: 0;
+}
+.lp .beat > time {
+  font-family: var(--mono);
+  font-size: var(--t-label);
+  letter-spacing: var(--track-label);
+  color: var(--accent-dim);
+}
+.lp .beat .say {
+  font-size: var(--t-body);
+  line-height: var(--lh-body);
+  color: var(--ink-2);
+}
+.lp .beat .do {
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-4);
+  margin-top: 6px;
+}
+
+/* A dense slide is one whose content is the point — the demo script. It gets a smaller headline and
+   tighter rows rather than fewer beats, because a beat cut from the script is a beat improvised in
+   front of judges. */
+.lp .slide.dense h2 {
+  font-size: clamp(24px, 2.6vw, 34px);
+}
+.lp .slide.dense .slide-head {
+  margin-bottom: var(--s-5);
+}
+.lp .slide.dense .beat {
+  padding: 9px 0;
+}
+.lp .slide.dense .mod {
+  padding: var(--s-4) var(--s-5);
+}
+
+/* ---------- the progress rail ---------- */
+/* Fixed, right, one tick a slide. A deck needs to say how much of itself is left; the ticks are
+   anchors so a judge who wants slide 9 again can get there without scrolling through eight. */
+
+.lp .ticks {
+  position: fixed;
+  right: 18px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  gap: 8px;
+  z-index: 40;
+}
+.lp .ticks a {
+  display: block;
+  width: 18px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--surface-3);
+  text-decoration: none;
+  transition: background var(--dur) var(--ease), width var(--dur) var(--ease);
+}
+.lp .ticks a:hover,
+.lp .ticks a[data-current="true"] {
+  background: var(--accent);
+  width: 28px;
+}
+
+/* The step cue: bottom-left, tells the presenter the keyboard drives this thing. */
+.lp .deck-cue {
+  position: fixed;
+  left: 18px;
+  bottom: 16px;
+  z-index: 40;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-4);
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xs);
+  padding: 5px 9px;
+}
+
+@media (max-width: 860px) {
+  .lp .ticks,
+  .lp .deck-cue {
+    display: none;
+  }
+  .lp .g3,
+  .lp .g4 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .lp .slide {
+    min-height: auto;
+    padding-block: 56px;
+  }
+  .lp.deck {
+    scroll-snap-type: none;
+  }
+}
+
+/* Printing a deck is how it becomes the PDF in the submission folder, so one slide is one page. */
+@media print {
+  .lp.deck {
+    height: auto;
+    overflow: visible;
+  }
+  .lp .slide {
+    min-height: auto;
+    break-after: page;
+    padding-block: 24px;
+  }
+  .lp .ticks,
+  .lp .deck-cue {
+    display: none;
+  }
+  .lp .slide.ink {
+    background: #fff;
+    color: #000;
+  }
+}
+
+/* Dot type carries its ink as a presentation attribute, so on an ink slide it would set itself in
+   the paper palette's --text and disappear. Repaint every dot but the accent one, the same way the
+   landing page's dark card does. */
+.lp .slide.ink svg circle:not([fill="var(--accent)"]) {
+  fill: var(--on-ink);
+}

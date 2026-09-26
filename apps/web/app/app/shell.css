@@ -1,0 +1,192 @@
+/* The desk shell. Sidebar on the panel ground, content on paper — the same two materials the rest
+   of the sheet uses, so nothing here is a new surface, only a new arrangement of the old ones. */
+
+.shell {
+  display: grid;
+  grid-template-columns: 248px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+/* ---------- sidebar ---------- */
+
+.shell > .sb {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 20px 14px;
+  background: var(--panel-2);
+  box-shadow: inset -1px 0 0 var(--line);
+}
+
+.sb-brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 8px;
+  color: var(--text);
+  font-weight: 800;
+  font-size: 16px;
+  letter-spacing: -0.03em;
+  text-decoration: none;
+}
+.sb-brand:hover {
+  color: var(--text);
+  text-decoration: none;
+}
+.sb-brand svg {
+  display: block;
+}
+
+.sb-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.sb-group {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-4);
+  padding: 14px 8px 6px;
+}
+
+.sb-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--r-md);
+  font-size: 13px;
+  color: var(--ink-2);
+  text-decoration: none;
+  transition: background var(--dur) var(--ease);
+}
+.sb-item:hover {
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--text);
+  text-decoration: none;
+}
+/* Held down, the one state the sheet already has for a control that stays put: the signal wash
+   with the signal itself ruled down the left edge. */
+.sb-item[data-current="true"] {
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: var(--sh-bay), inset 2px 0 0 var(--accent);
+  font-weight: 600;
+}
+.sb-item > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sb-item > em {
+  font-family: var(--mono);
+  font-style: normal;
+  font-size: 11px;
+  color: var(--ink-4);
+}
+
+.sb-dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--idle);
+}
+.sb-dot.active {
+  background: var(--ok);
+}
+.sb-dot.awaiting {
+  background: var(--accent);
+}
+
+.sb-foot {
+  padding: 0 8px;
+}
+
+/* ---------- content ---------- */
+
+.shell-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 14px 28px;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(8px);
+  box-shadow: inset 0 -1px 0 var(--line);
+}
+.topbar-t {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.topbar-t h1 {
+  margin: 0;
+  font-size: 19px;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  font-weight: 650;
+}
+.topbar-a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.shell-body {
+  padding: 24px 28px 80px;
+  max-width: 1320px;
+}
+
+@media (max-width: 900px) {
+  .shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .shell > .sb {
+    position: static;
+    height: auto;
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+    overflow-x: auto;
+    box-shadow: inset 0 -1px 0 var(--line);
+  }
+  .sb-nav {
+    flex-direction: row;
+    align-items: center;
+  }
+  .sb-group,
+  .sb-foot {
+    display: none;
+  }
+  .sb-item {
+    white-space: nowrap;
+  }
+  .topbar,
+  .shell-body {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+}

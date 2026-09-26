@@ -20,6 +20,7 @@ import { CHAINS, CROSS_PERMIT } from "../src/config";
 import { PAPER } from "../src/dither";
 import { DitherArea, DitherBars, DitherWash, DotText, HorseMatrix } from "../src/dithergraph";
 import { Machine } from "../src/machine";
+import { Rail } from "./rail";
 
 gsap.registerPlugin(useGSAP, ScrollTrigger);
 
@@ -29,13 +30,6 @@ const DOMAIN_SEPARATOR = "0x4ce820a58ffb00fe1b6cb52f083bdd1cfd176732c34db34a8451
 const APY_SERIES = [3.41, 3.52, 3.48, 3.71, 3.84, 3.79, 3.95, 4.02, 3.98, 4.11, 4.06, 4.19, 4.24, 4.06];
 /** Fee capture per chain per day, from the 0.3% pool the lifecycle swaps through. */
 const FEE_SERIES = [4, 7, 5, 9, 12, 8, 14, 11, 17, 15, 21, 19, 24, 22];
-
-const NAV = [
-  ["#how", "The cost"],
-  ["#chains", "One address"],
-  ["#flow", "Onboarding"],
-  ["#venues", "Allocation"],
-] as const;
 
 export default function Landing() {
   const root = useRef<HTMLDivElement>(null);
@@ -227,26 +221,9 @@ export default function Landing() {
 
   return (
     <div className="lp" ref={root}>
-      <header className="rail">
-        <div className="rail-in">
-          <a className="brandmark" href="#top" style={{ textDecoration: "none" }}>
-            <HorseMatrix cols={13} size={22} />
-            CrossPermit<span style={{ color: "var(--accent)" }}>.</span>
-          </a>
-          <nav className="rail-nav" aria-label="Sections">
-            {NAV.map(([href, label]) => (
-              <a key={href} href={href}>
-                {label}
-              </a>
-            ))}
-          </nav>
-          <Link className="btn btn-action" href="/app">
-            <span className="cap">
-              Enter the desk
-            </span>
-          </Link>
-        </div>
-      </header>
+      {/* The rail owns the section list. The ScrollTrigger above reads the hrefs back off the DOM,
+          so there is nothing here to keep in step with it. */}
+      <Rail />
 
       {/* ----------------------------------------------------------- hero */}
       <section className="hero" id="top">
@@ -419,9 +396,7 @@ export default function Landing() {
               <div className="figure">
                 <DotText text="4X" size={30} />
               </div>
-              <p className="lede">
-                A counterparty goes bad and the desk is queuing in four gas markets while it does.
-              </p>
+              <p className="lede">A counterparty goes bad and the desk is queuing in four gas markets while it does.</p>
             </div>
             <div className="mod statcard hot reveal">
               <span className="label">With CrossPermit, either way</span>
@@ -463,9 +438,7 @@ export default function Landing() {
             <div className="cell cta">
               <p>Onboarding is a link and a signature. The desk is trading the same afternoon.</p>
               <Link className="btn btn-sm" href="/app">
-                <span className="cap">
-                  Sign up
-                </span>
+                <span className="cap">Sign up</span>
               </Link>
             </div>
           </div>
@@ -545,7 +518,9 @@ export default function Landing() {
           </div>
           <div className="surf-track" ref={surf}>
             <article className="step">
-              <div className="n">01</div>
+              <div className="n">
+                <DotText text="01" size={20} />
+              </div>
               <h3>Add the client</h3>
               <p>Name, mandate size, expiry, chains. Nothing has been asked of the client yet.</p>
               <div className="wire">
@@ -557,7 +532,9 @@ export default function Landing() {
             </article>
 
             <article className="step">
-              <div className="n">02</div>
+              <div className="n">
+                <DotText text="02" size={20} />
+              </div>
               <h3>Send the link</h3>
               <p>
                 A one-client invitation carrying the mandate, not a request for keys. Revocable before it is ever
@@ -572,7 +549,9 @@ export default function Landing() {
             </article>
 
             <article className="step">
-              <div className="n">03</div>
+              <div className="n">
+                <DotText text="03" size={20} />
+              </div>
               <h3>They sign once</h3>
               <p>
                 Their wallet opens on a page that has already rendered every per-chain bundle in plain language. They
@@ -587,11 +566,13 @@ export default function Landing() {
             </article>
 
             <article className="step">
-              <div className="n">04</div>
+              <div className="n">
+                <DotText text="04" size={20} />
+              </div>
               <h3>You allocate</h3>
               <p>
-                The capital arrives on the desk with its bounds attached. Uniswap v4, Aave v4, tokenized equity —
-                inside the mandate, never past it.
+                The capital arrives on the desk with its bounds attached. Uniswap v4, Aave v4, tokenized equity — inside
+                the mandate, never past it.
               </p>
               <div className="wire">
                 <span>DESK</span>
@@ -722,7 +703,9 @@ export default function Landing() {
               <span className="label">Equities</span>
               <h3>Tokenized desk</h3>
               <div className="row">
-                <span className="n">NVDAon</span>
+                <span className="n">
+                  <DotText text="NVDAon" size={24} />
+                </span>
                 <span className="micro">Ondo, read live</span>
               </div>
               <p className="lede">
@@ -738,7 +721,11 @@ export default function Landing() {
         <div className="wrapx">
           <div className="sec-head reveal">
             <span className="label">05 / What the client keeps</span>
-            <h2>A mandate, not custody.</h2>
+            {/* Set in dots rather than type: this is the line the whole page is arguing towards, and
+                the display treatment is what marks it as the conclusion and not another heading. */}
+            <h2>
+              <DotText text="A mandate, not custody." size={30} />
+            </h2>
           </div>
           <div className="grid g4">
             {[
@@ -747,7 +734,10 @@ export default function Landing() {
                 "Amount, spender and expiry live inside the message they signed. Nothing can raise them afterwards.",
               ],
               ["Revocable", "One signature LOCKs the desk everywhere — proved by a spend that reverts, not by a flag."],
-              ["Non-custodial", "The relayer pays gas and nothing else. It cannot change recipient, amount or spender."],
+              [
+                "Non-custodial",
+                "The relayer pays gas and nothing else. It cannot change recipient, amount or spender.",
+              ],
               ["Audited", "Every grant, spend and revocation lands in the control-plane event ledger."],
             ].map(([title, body]) => (
               <div className="mod-flat reveal" key={title}>
@@ -765,7 +755,9 @@ export default function Landing() {
       <section className="close">
         <div className="wrapx" style={{ display: "grid", justifyItems: "center", gap: 24 }}>
           <HorseMatrix cols={20} size={150} />
-          <h2 style={{ maxWidth: "14ch" }}>Open the desk.</h2>
+          <h2>
+            <DotText text="Open the desk." size={38} />
+          </h2>
           <p className="lede">Three testnets are live now. Add a client and send the link.</p>
           <div
             style={{
@@ -776,9 +768,7 @@ export default function Landing() {
             }}
           >
             <Link className="btn btn-action" href="/app">
-              <span className="cap">
-                Enter the desk
-              </span>
+              <span className="cap">Enter the desk</span>
             </Link>
             <a
               className="btn btn-ghost"
@@ -786,9 +776,7 @@ export default function Landing() {
               target="_blank"
               rel="noreferrer"
             >
-              <span className="cap">
-                Read the code
-              </span>
+              <span className="cap">Read the code</span>
             </a>
           </div>
         </div>

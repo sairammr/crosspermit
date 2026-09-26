@@ -3,72 +3,74 @@
 import { describe, expect, test } from "bun:test";
 import { privateKeyToAccount } from "viem/accounts";
 
-import { AuthError, burnNonce, challenge, issueNonce, session, signIn, NONCE_TTL_MS } from "../src/auth.js";
-import { open } from "../src/db.js";
-import { canReadMandate, canReadOwner, classifySpender, scopeCheck } from "../src/scope.js";
+import { AuthError, burnNonce, challenge, issueNonce, session, signIn, NONCE_TTL_MS } from "../src/desk/auth";
+import { reset } from "../src/desk/db";
+import { canReadMandate, canReadOwner, classifySpender, scopeCheck } from "../src/desk/scope";
 
-const fresh = () => open(":memory:");
+// A throwaway libSQL database per test. `reset` forgets the previous one, so no test can see
+// another's rows — the same isolation `:memory:` gave when this was bun:sqlite.
+const fresh = () => reset("file::memory:");
 const alice = privateKeyToAccount("0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d");
 const bob = privateKeyToAccount("0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba");
 
 describe("nonce", () => {
-  test("is single use", () => {
-    const db = fresh();
-    const { nonce } = issueNonce(db, alice.address);
-    expect(burnNonce(db, nonce).address).toBe(alice.address.toLowerCase());
-    expect(() => burnNonce(db, nonce)).toThrow(/already been used/);
+  test("is single use", async () => {
+    await fresh();
+    const { nonce } = await issueNonce(alice.address);
+    expect((await burnNonce(nonce)).address).toBe(alice.address.toLowerCase());
+    await expect(burnNonce(nonce)).rejects.toThrow(/already been used/);
   });
 
-  test("expires", () => {
-    const db = fresh();
+  test("expires", async () => {
+    await fresh();
     const now = Date.now();
-    const { nonce } = issueNonce(db, alice.address, now);
-    expect(() => burnNonce(db, nonce, now + NONCE_TTL_MS + 1)).toThrow(/expired/);
+    const { nonce } = await issueNonce(alice.address, now);
+    await expect(burnNonce(nonce, now + NONCE_TTL_MS + 1)).rejects.toThrow(/expired/);
   });
 
   test("is spent even when the signature is wrong, so a bad attempt cannot be repeated", async () => {
-    const db = fresh();
+    await fresh();
     const now = Date.now();
-    const { nonce, message } = issueNonce(db, alice.address, now);
+    const { nonce, message } = await issueNonce(alice.address, now);
     const wrong = await bob.signMessage({ message });
-    await expect(signIn(db, { address: alice.address, nonce, signature: wrong }, now)).rejects.toThrow(/does not recover/);
+    await expect(signIn({ address: alice.address, nonce, signature: wrong }, now)).rejects.toThrow(/does not recover/);
     // Second attempt, this time with the right key: the nonce is gone regardless.
     const right = await alice.signMessage({ message });
-    await expect(signIn(db, { address: alice.address, nonce, signature: right }, now)).rejects.toThrow(/never issued/);
+    await expect(signIn({ address: alice.address, nonce, signature: right }, now)).rejects.toThrow(/never issued/);
   });
 });
 
 describe("sign in", () => {
   test("a valid signature opens a session and creates the manager", async () => {
-    const db = fresh();
+    await fresh();
     const now = Date.now();
-    const { nonce, message } = issueNonce(db, alice.address, now);
+    const { nonce, message } = await issueNonce(alice.address, now);
     expect(message).toBe(challenge(alice.address, nonce, new Date(now)));
 
-    const out = await signIn(db, { address: alice.address, nonce, signature: await alice.signMessage({ message }) }, now);
+    const out = await signIn({ address: alice.address, nonce, signature: await alice.signMessage({ message }) }, now);
     expect(out.address).toBe(alice.address.toLowerCase());
-    expect(session(db, `desk_session=${out.sessionId}`, now)).toBe(alice.address.toLowerCase());
-    expect(session(db, `desk_session=${out.sessionId}`, now + 25 * 3_600_000)).toBeNull();
-    expect(session(db, "desk_session=nope", now)).toBeNull();
-    expect(session(db, null, now)).toBeNull();
+    expect(await session(`desk_session=${out.sessionId}`, now)).toBe(alice.address.toLowerCase());
+    expect(await session(`desk_session=${out.sessionId}`, now + 25 * 3_600_000)).toBeNull();
+    expect(await session("desk_session=nope", now)).toBeNull();
+    expect(await session(null, now)).toBeNull();
   });
 
   test("a signature from another key over the same challenge is refused", async () => {
-    const db = fresh();
+    await fresh();
     const now = Date.now();
-    const { nonce, message } = issueNonce(db, alice.address, now);
+    const { nonce, message } = await issueNonce(alice.address, now);
     await expect(
-      signIn(db, { address: alice.address, nonce, signature: await bob.signMessage({ message }) }, now),
+      signIn({ address: alice.address, nonce, signature: await bob.signMessage({ message }) }, now),
     ).rejects.toBeInstanceOf(AuthError);
   });
 
   test("a nonce issued to one address cannot be used by another", async () => {
-    const db = fresh();
+    await fresh();
     const now = Date.now();
-    const { nonce } = issueNonce(db, alice.address, now);
+    const { nonce } = await issueNonce(alice.address, now);
     const message = challenge(bob.address, nonce, new Date(now));
     await expect(
-      signIn(db, { address: bob.address, nonce, signature: await bob.signMessage({ message }) }, now),
+      signIn({ address: bob.address, nonce, signature: await bob.signMessage({ message }) }, now),
     ).rejects.toThrow(/different address/);
   });
 });

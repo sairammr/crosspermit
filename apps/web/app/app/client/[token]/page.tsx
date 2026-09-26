@@ -27,9 +27,10 @@ import { type Address, formatUnits, parseAbi } from "viem";
 import { useReadContracts } from "wagmi";
 
 import { crossPermitAbi } from "@crosspermit/sdk";
-import { type ClientMandate, useMandate } from "../../../../src/clients";
+import { type ClientMandate, useClients, useMandate } from "../../../../src/clients";
 import { CHAINS, CROSS_PERMIT, chainById } from "../../../../src/config";
-import { DitherArea, DitherBars, HorseMatrix } from "../../../../src/dithergraph";
+import { DitherArea, DitherBars } from "../../../../src/dithergraph";
+import { Shell } from "../../shell";
 import { SIGNAL } from "../../../../src/dither";
 import { POOLS } from "../../../../src/pools";
 import { type ActivityRow, useActivity, useRelayerChains, useTreasury } from "../../../../src/relayer";
@@ -75,18 +76,16 @@ export default function ClientPage() {
   const { state, reload } = useMandate(token);
   const [refreshKey, setRefreshKey] = useState(0);
 
+  const clients = useClients(refreshKey);
+  const client = state.kind === "ok" ? state.client : null;
+
   return (
-    <div className="wrap">
-      <header className="top">
-        <Link className="brandmark" href="/app">
-          <HorseMatrix cols={20} size={28} />
-          CrossPermit
-        </Link>
-        <nav className="tabs">
-          <Link className="tab" href="/app">
-            ← back to the desk
-          </Link>
-        </nav>
+    <Shell
+      clients={clients}
+      current={token ?? ""}
+      title={client?.name ?? "Client"}
+      meta={client ? (client.mandate || "portfolio, as the control plane and each chain report it") : undefined}
+      actions={
         <button
           className="btn btn-sm"
           type="button"
@@ -97,8 +96,9 @@ export default function ClientPage() {
         >
           <span className="cap">Refresh</span>
         </button>
-      </header>
-
+      }
+      onSession={() => setRefreshKey((k) => k + 1)}
+    >
       {state.kind === "loading" && <p className="note">Reading the mandate…</p>}
       {state.kind === "missing" && (
         <div className="panel">
@@ -116,7 +116,7 @@ export default function ClientPage() {
         </div>
       )}
       {state.kind === "ok" && <Dashboard client={state.client} refreshKey={refreshKey} />}
-    </div>
+    </Shell>
   );
 }
 

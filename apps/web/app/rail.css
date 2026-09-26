@@ -1,199 +1,351 @@
 /* ============================================================
-   TOP RAIL — the station-preset key bank.
-   Landing-only: every selector sits under .lp. Selectors carry `.rail` as well as `.rail-nav`
-   so they outrank the plain-link rules still standing in landing.css regardless of import order.
+   TOP RAIL — a floating row of console keys.
+
+   Built to the console reference's block key: a cap on a fixed skirt. The skirt is the ::before,
+   it is a solid wall of its own colour, and it never moves; the cap is the only part that travels,
+   4px into a 6px skirt over 90ms. Geometry and colour come from that sheet — chalk face #FBF9F4 on
+   a #DCD6CA wall, signal face #F45108 on #B03C05, radius 16, mono 600 uppercase at .14em.
+
+   Deliberately not neumorphic: the depth here is an object with a wall and a cast, not a shape
+   embossed out of the background by a pair of soft blurs. The face stays near-flat, the moulding
+   rim stays a crisp 1px line, and nothing gets a light-from-the-top-left glow. The casts are
+   pitched darker than the sheet's because these keys sit on a black housing rather than on paper,
+   and the sheet's paper-weight shadow would vanish into it. Every edge in this file is one you
+   could point at on a real part.
+
+   Product-wide: the landing takes `.rail--float`, the desk and the client screens take
+   `.rail--inline`. Everything below the two frame rules is shared by both.
    ============================================================ */
 
-/* The rail is absent over the hero and arrives once the hero is behind you. GSAP owns the
-   transform; everything here is the look it arrives with. */
-.lp .rail {
+/* No bar, no backdrop, no hairline: the rail is a positioning frame and nothing more, so the page
+   runs under the row rather than under a strip. Pointer events go back to the keys alone, or the
+   full-width frame would swallow clicks across the top of every section.
+   GSAP parks this translated off the top over the hero and brings it in after; nothing on the
+   frame may carry a shadow of its own, or it would paint a dark line along the hero's top edge the
+   whole time it is parked. */
+.rail {
+  display: flex;
+  justify-content: center;
+  background: none;
+  border: 0;
+  pointer-events: none;
+}
+
+/* Floating: the landing. The row hangs over the page and GSAP parks it off the top until the hero
+   is behind you. */
+.rail--float {
   position: fixed;
   inset: 0 0 auto 0;
   z-index: 40;
-  background: color-mix(in srgb, var(--bg) 82%, transparent);
-  backdrop-filter: blur(14px) saturate(140%);
-  border-bottom: 1px solid var(--line);
-  /* No drop shadow. The rail sits translated off the top of the viewport until it is wanted, and a
-     shadow attached to it paints a dark strip along the very top edge of the hero the whole time. */
+  padding: 18px 24px 20px;
 }
-.lp .rail-in {
-  max-width: var(--maxw);
-  margin: 0 auto;
-  padding: 10px 24px;
-  display: grid;
-  grid-template-columns: auto 1fr auto;
+
+/* Inline: the desk and the client screens. The same key bank, but it sits at the top of the wrap
+   as the page's own header rather than over it — there is no hero here for it to get out of the
+   way of, and a tab row that floated would cover the table it switches. The housing runs the full
+   width so the brandmark and the wallet are inside the bay with the keys rather than loose on the
+   paper either side of it. */
+.rail--inline {
+  position: relative;
+  padding: 20px 0 24px;
+}
+.rail.rail--inline .railkeys {
+  width: 100%;
   align-items: center;
-  gap: 24px;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  padding: 8px 10px;
 }
-
-/* ---------- the bezel ----------
-   A shallow inset tray the keys are nested into. This is the part that makes four keys read as one
-   tuner rather than as four buttons that happen to be adjacent. */
-.lp .railkeys {
-  justify-self: center;
-  padding: 3px;
-  border-radius: 12px;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
-  box-shadow: inset 0 1px 2px rgba(40, 30, 20, 0.09);
+/* The brandmark and the wallet slot are the two ends of the bay. The nav takes the space between
+   them, so the keys stay put when a wallet address appears and lengthens the right-hand slot. */
+.rail.rail--inline .rail-nav {
+  flex: 1 1 auto;
 }
-.lp .rail .rail-nav {
+/* The desk carries eight keys plus a brandmark and a wallet, where the landing carries five. The
+   cap is trimmed rather than the bank shortened: every screen has to stay reachable in one press,
+   and a key that has been scrolled out of the row is not. */
+.rail.rail--inline .rail-nav :is(a, button) .cap {
+  height: 40px;
+  padding: 0 13px;
+  letter-spacing: 0.1em;
+}
+.railbrand,
+.railaside {
   display: flex;
-  gap: 3px;
-  overflow-x: auto;
-  scrollbar-width: none;
+  align-items: center;
+  gap: 10px;
+  /* Inside the housing, so the ink inverts: on black, the page's own --text would be invisible. */
+  color: var(--on-ink);
 }
-.lp .rail .rail-nav::-webkit-scrollbar {
-  display: none;
+.railbrand {
+  padding-left: 8px;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-decoration: none;
+}
+.railbrand a,
+.railbrand > * {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: inherit;
+  text-decoration: none;
+}
+.railaside {
+  margin-left: auto;
+}
+/* Everything in the slots is set for paper by default, and the housing is black. The meta greys
+   and the status legend are pitched up to the housing's own soft grey; the lamp beside the legend
+   keeps its semantic colour, because that is the one thing in the row that has to stay readable as
+   a signal rather than as text. The keys are untouched: a key is a part with its own face. */
+.railbrand .micro,
+.railbrand .label,
+.railaside .micro,
+.railaside .label,
+.railaside .status {
+  color: #a9a6a0;
+}
+.railaside .status.active i {
+  background: var(--on-ink);
+}
+/* A key in a slot is the same part as a key in the bank, so its cast is pitched for the housing
+   rather than for paper: the sheet's paper-weight shadow vanishes into black. */
+.railbrand .btn::before,
+.railaside .btn::before {
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.5);
+}
+.railaside .btn {
+  margin-right: 2px;
 }
 
-/* ---------- the keys ----------
-   Same construction as .btn: a skirt in ::before that never moves, and a cap that sinks --travel
-   into it. Kept off the .btn class on purpose — these latch, and .btn keys must not. */
-.lp .rail .rail-nav a {
-  --stand: 4px;
-  --travel: 3px;
-  --r: 9px;
-  --top: #fbfaf7;
-  --face: #f3f1ed;
-  --foot: #e7e3db;
-  --wall: #c9c4bb;
-  --fg: var(--ink-3);
+/* The housing: one black container the keys are set into, wrapping them on every side and showing
+   through the gaps between them. It is the only background on the rail — the keys sit on it
+   directly, with no second plate behind them.
+   It obeys the sheet's lighting law for a region cut into a surface: a dark inset along its top
+   lip, a light one along the bottom, so the black reads as a milled bay with depth rather than as
+   a rectangle someone filled in. The outer cast is what lifts the whole unit off the page. */
+.rail .railkeys {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  /* The black wrap is a bezel, not a tray: 7px of housing around the keys rather than 12, so the
+     frame reads as the edge of the bay the keys are set into instead of a slab they float on. */
+  padding: 7px;
+  border-radius: 19px;
+  background: var(--ink-deep);
+  box-shadow:
+    inset 0 2px 5px rgba(0, 0, 0, 0.55),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.14),
+    0 2px 4px rgba(40, 34, 28, 0.18);
+  /* Not a scroll container. `overflow: auto` here clipped the keys' cast shadows flat against the
+     housing edge, which drew a hard rectangle around the row; the keys are hidden below 760px
+     rather than scrolled, so there is nothing for it to do but that damage. */
+  overflow: visible;
+}
+.rail .rail-nav {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+/* ---------- the key ----------
+   Chalk face. The anchor is the whole part: its bottom padding is the skirt height, so the cap can
+   sink into it without the row reflowing. */
+.rail .rail-nav :is(a, button),
+.rail .railgo {
+  --stand: 6px;
+  --travel: 4px;
+  --r: 16px;
+  --top: #ffffff;
+  --face: #fbf9f4;
+  --foot: #f1ede4;
+  --wall: #dcd6ca;
+  --fg: #1b1a18;
   --key-ease: cubic-bezier(0.2, 0.65, 0.3, 1);
 
   position: relative;
-  display: block;
+  display: inline-block;
+  /* A desk tab is a button and a landing section is an anchor, but they are the same part, so the
+     button's own chrome is removed rather than styled around. */
+  appearance: none;
+  background: none;
+  border: 0;
+  margin: 0;
   padding: 0 0 var(--stand);
+  font: inherit;
+  cursor: pointer;
   color: var(--fg);
   text-decoration: none;
   -webkit-tap-highlight-color: transparent;
 }
-.lp .rail .rail-nav a::before {
+
+/* The skirt: the extruded wall. Solid colour, sitting entirely under the cap and showing only at
+   the foot, where the part meets the housing. */
+.rail .rail-nav :is(a, button)::before,
+.rail .railgo::before {
   content: "";
   position: absolute;
   left: 0;
   right: 0;
-  top: var(--stand);
+  top: 0;
   bottom: 0;
+  /* Rounded on all four corners, not just the foot. The reference skirt starts at `top:var(--stand)`
+     with square top corners, which is invisible on paper but not here: against the black housing the
+     pale wall showed as a square ear either side of the cap's 16px crown, so every key sat inside a
+     faint rectangle. Running the skirt the full height with the cap's radius puts its top corners
+     exactly under the cap, and only the 6px foot is ever seen. */
   border-radius: var(--r);
   background: var(--wall);
+  /* The cast the sheet gives a key, darkened to register against the housing instead of
+     disappearing into it. */
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.45);
 }
-.lp .rail .rail-nav a .cap {
+
+/* The cap: the only part that moves. The gradient is a near-flat moulding — a lit crown, a long
+   even face, one darker step at the foot — not a soft sphere. */
+.rail .rail-nav :is(a, button) .cap,
+.rail .railgo .cap {
   position: relative;
   z-index: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 30px;
-  padding: 0 14px;
+  height: 44px;
+  padding: 0 20px;
   border-radius: var(--r);
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--fg);
   white-space: nowrap;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 24%),
-    linear-gradient(180deg, var(--top) 0%, var(--face) 18%, var(--face) 78%, var(--foot) 100%);
+  background: linear-gradient(180deg, var(--top) 0%, var(--face) 14%, var(--face) 82%, var(--foot) 100%);
   box-shadow:
     inset 0 0 0 1px rgba(0, 0, 0, 0.055),
     inset 0 1px 0 rgba(255, 255, 255, 0.7),
     inset 0 -2px 2px rgba(0, 0, 0, 0.09),
     0 1px 0 rgba(0, 0, 0, 0.1);
+  transform: translateY(0);
   transition:
     transform 90ms var(--key-ease),
-    box-shadow 90ms var(--key-ease),
-    color 90ms var(--key-ease);
+    box-shadow 90ms var(--key-ease);
 }
 
-/* Hover is a hint of travel, not a press — a full sink would make hover indistinguishable from the
-   latched section and the bank would lie about where you are. */
-.lp .rail .rail-nav a:hover {
+/* The reference's hover is a brightness lift and nothing else — a key that sank on hover would be
+   indistinguishable from the held one, and the row would lie about where you are. */
+.rail .rail-nav :is(a, button):hover,
+.rail .railgo:hover {
   text-decoration: none;
+  color: var(--fg);
 }
-.lp .rail .rail-nav a:hover .cap {
-  color: var(--text);
-  transform: translateY(1px);
+.rail .rail-nav :is(a, button):hover .cap,
+.rail .railgo:hover .cap {
+  filter: brightness(1.015);
 }
-.lp .rail .rail-nav a:active .cap {
+
+/* Pressed: the cap sits down on the skirt. The rim stays, the crown light inverts to the foot. */
+.rail .rail-nav :is(a, button):active .cap,
+.rail .railgo:active .cap {
   transform: translateY(var(--travel));
   box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.07),
     inset 0 2px 4px rgba(0, 0, 0, 0.2),
     inset 0 -1px 0 rgba(255, 255, 255, 0.35),
     0 1px 0 rgba(0, 0, 0, 0.1);
 }
-.lp .rail .rail-nav a:focus-visible {
+.rail .rail-nav :is(a, button):focus-visible,
+.rail .railgo:focus-visible {
   outline: none;
 }
-.lp .rail .rail-nav a:focus-visible .cap {
+.rail .rail-nav :is(a, button):focus-visible .cap,
+.rail .railgo:focus-visible .cap {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.7),
-    inset 0 -2px 2px rgba(0, 0, 0, 0.1),
-    0 0 0 2px var(--bg),
-    0 0 0 4px var(--text);
+    inset 0 -2px 2px rgba(0, 0, 0, 0.09),
+    0 0 0 2px var(--ink-deep),
+    0 0 0 4px var(--accent);
 }
 
-/* ---------- the latched key ----------
-   GSAP writes data-current as you scroll. The key stays down: cap sunk the full travel, face a
-   shade darker, and an accent bar lit across the bottom of the cap so the held station is legible
-   at a glance rather than only on close inspection. */
-.lp .rail .rail-nav a[data-current="true"] {
-  --face: #e9e6e0;
-  --top: #efece6;
-  --foot: #ddd9d1;
-  --fg: var(--text);
+/* ---------- the held key ----------
+   The reference already has a state for a key that stays down — data-state="pressed". GSAP writes
+   data-current instead, and it means the same thing here. The cap sinks and stays, and the legend
+   goes to the accent as text, which is the one mark that survives at a glance without adding a
+   glow to a part that should not have one. */
+.rail .rail-nav :is(a, button)[data-current="true"] {
+  --top: #f4f1ea;
+  --face: #efece4;
+  --foot: #e8e4da;
+  --fg: var(--accent-dim);
 }
-.lp .rail .rail-nav a[data-current="true"] .cap {
+.rail .rail-nav :is(a, button)[data-current="true"] .cap {
   transform: translateY(var(--travel));
   box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.07),
     inset 0 2px 5px rgba(0, 0, 0, 0.22),
     inset 0 -1px 0 rgba(255, 255, 255, 0.3),
-    0 1px 0 rgba(0, 0, 0, 0.08);
+    0 1px 0 rgba(0, 0, 0, 0.1);
 }
-.lp .rail .rail-nav a[data-current="true"] .cap::after {
-  content: "";
-  position: absolute;
-  left: 10px;
-  right: 10px;
-  bottom: 4px;
-  height: 2px;
-  border-radius: 2px;
-  background: var(--accent);
-}
-/* A latched key does not respond to hover; it is already down. */
-.lp .rail .rail-nav a[data-current="true"]:hover .cap {
+/* Already down: hover must not lift it and undo the mark. */
+.rail .rail-nav :is(a, button)[data-current="true"]:hover .cap {
   transform: translateY(var(--travel));
+  filter: none;
 }
 
-.lp .rail .btn .cap {
-  height: 34px;
-  padding: 0 16px;
-  font-size: 13px;
+/* ---------- the signal key ----------
+   One per screen. Same part, different moulding colour. */
+.rail .railgo {
+  --top: #ff7c38;
+  --face: #f45108;
+  --foot: #e04906;
+  --wall: #a83604;
+  --fg: #fff1e8;
+}
+.rail .railgo::before {
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.5);
+}
+.rail .railgo .cap {
+  box-shadow:
+    inset 0 0 0 1px rgba(90, 25, 0, 0.16),
+    inset 0 1px 0 rgba(255, 198, 166, 0.42),
+    inset 0 -2px 2px rgba(80, 20, 0, 0.22),
+    0 1px 0 rgba(90, 25, 0, 0.18);
+}
+.rail .railgo:active .cap {
+  box-shadow:
+    inset 0 0 0 1px rgba(90, 25, 0, 0.2),
+    inset 0 2px 5px rgba(70, 18, 0, 0.34),
+    inset 0 -1px 0 rgba(255, 198, 166, 0.28),
+    0 1px 0 rgba(90, 25, 0, 0.18);
 }
 
-/* Tighten the keys before losing them, so the bank survives a laptop that is merely narrow. */
+/* Trim the caps before losing any key, so the row survives a laptop that is merely narrow. */
 @media (max-width: 1100px) {
-  .lp .rail .rail-nav a .cap {
-    padding: 0 10px;
+  .rail .rail-nav :is(a, button) .cap,
+  .rail .railgo .cap {
+    padding: 0 14px;
     letter-spacing: 0.1em;
   }
 }
-/* Below this the three zones cannot share a line. The bank goes rather than fold into a menu:
-   the sections are all reachable by scrolling, which is what a phone does anyway. */
-@media (max-width: 900px) {
-  .lp .railkeys {
+/* On a phone the landing's sections are reachable by scrolling, which is what a phone does anyway.
+   The section keys go and the signal key stays, so the row is still the way into the desk.
+   The desk's keys are the only way to reach its screens, so they never go: they wrap instead. */
+@media (max-width: 760px) {
+  .rail--float .rail-nav {
     display: none;
   }
-  .lp .rail-in {
-    grid-template-columns: auto auto;
-    justify-content: space-between;
+  .rail.rail--inline .rail-nav {
+    flex-wrap: wrap;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .lp .rail .rail-nav a .cap {
+  .rail .rail-nav :is(a, button) .cap,
+  .rail .railgo .cap {
     transition: none;
   }
 }

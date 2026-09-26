@@ -6,7 +6,7 @@ Four things run, all in this repo. Nothing here is optional except MultiBaas.
 |---|---|---|---|
 | `contracts/` | CrossPermit, the Universal Router, LiquidityDesk, test tokens, a v4 pool per chain | — | a deployer key, at deploy time only |
 | `apps/relayer` | one POST, N chains: admission, simulation, SSE, client mandates | 8787 | the relayer's signing key, MultiBaas keys |
-| `apps/desk` | the multi-manager gatehouse: wallet sign-in, scoped books, desk registry, pool reads | 8788 | the relayer's API key |
+| `apps/web/src/desk` | the multi-manager gatehouse, mounted at `/api/desk` inside the app: wallet sign-in, scoped books, desk registry, pool reads | — | the relayer's API key |
 | `apps/web` | landing page, desk console at `/app`, the client's mandate page at `/c/<token>` | 3000 | **nothing** |
 
 The shape that matters: **only `apps/web` faces the public.** The desk layer sits behind it through a
@@ -14,7 +14,7 @@ Next rewrite, and the relayer sits behind the desk layer. Nothing on the interne
 reach 8787 directly — it takes an API key, and that key is the whole desk.
 
 ```
-public ──▶ apps/web :3000 ──/api/desk/*──▶ apps/desk :8788 ──Bearer key──▶ apps/relayer :8787 ──▶ chains
+public ──▶ apps/web :3000 ──/api/desk/* (in-process) ──Bearer key──▶ apps/relayer :8787 ──▶ chains
 ```
 
 ## Prerequisites
@@ -56,13 +56,13 @@ cp apps/web/.env.example apps/web/.env.local
 | `MULTIBAAS_URL`, `MULTIBAAS_API_KEY`, `MULTIBAAS_CHAIN_ID` | relayer, treasury reads | per-chain variants: `MULTIBAAS_URL_<CHAINID>`, `MULTIBAAS_API_KEY_<CHAINID>` |
 | `MULTIBAAS_WEBHOOK_SECRET` | webhook verification | **Secret.** |
 
-### `apps/desk` (environment, no file of its own)
+### the desk layer (environment, read by `apps/web`)
 
 | var | notes |
 |---|---|
 | `RELAYER_URL` | default `http://localhost:8787` |
 | `RELAYER_API_KEY` | one of the relayer's keys. **Secret, and the only place it should ever live besides the relayer.** |
-| `DESK_PORT` | default 8788 |
+| `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN` | where the desk keeps managers, sessions, nonces and client links |
 | `DESK_DB` | sqlite path, default `desk.sqlite` in the process's working directory — set it explicitly |
 | `DESK_ROUTERS` | `{"84532":"0x…"}`. Overrides the built-in testnet routers. A wrong value is loud (a real router shows as `unrecognised spender`), never quiet. |
 | `DESK_INSECURE_COOKIE=1` | drops `Secure` from the session cookie. **Development only.** Over plain http without it, nobody can sign in. |
@@ -73,7 +73,7 @@ cp apps/web/.env.example apps/web/.env.local
 |---|---|
 | `NEXT_PUBLIC_WC_PROJECT_ID` | Reown project id. Public by design. Without it only injected wallets connect, and the UI says so. |
 | `NEXT_PUBLIC_RELAYER_URL` | display only — printed on the platform panel so an operator can see which relayer is behind the layer |
-| `DESK_URL` | where the desk layer listens. **Server-side only**; the browser never learns it. |
+| `RELAYER_URL` / `RELAYER_API_KEY` | the relayer as the desk sees it. **Server-side only**; the browser never learns either. |
 
 There is deliberately no API key here. If you find `NEXT_PUBLIC_RELAYER_API_KEY` in a deployment, it
 is stale — it shipped in the client bundle, which made anyone who could open the console the desk.
@@ -125,9 +125,8 @@ bun apps/relayer/src/server.ts
 # 2. desk layer — give it the relayer's key; it is the only process that should have it
 RELAYER_URL=http://localhost:8787 \
 RELAYER_API_KEY="$RELAYER_API_KEY" \
-DESK_DB="$PWD/apps/desk/desk.sqlite" \
 DESK_INSECURE_COOKIE=1 \
-bun apps/desk/src/server.ts
+# the desk layer needs no process of its own: it is served by apps/web at /api/desk
 
 # 3. web
 cd apps/web && bun run dev            # or: bun run build && bunx next start -p 3000
@@ -140,15 +139,15 @@ it is the only place that says whether it is signing with a local key or a Cloud
 
 ```bash
 curl localhost:8787/healthz                      # relayer
-curl localhost:8788/healthz                      # desk layer, and which relayer it is behind
+curl localhost:3000/api/desk/healthz             # desk layer, and which relayer it is behind
 curl -o /dev/null -w '%{http_code}\n' localhost:3000/app
 
-cd apps/desk && bun test                         # 17 offline tests
-DESK_URL=http://localhost:8788 bun scripts/live-smoke.ts    # two managers, real signatures, every refusal
+cd apps/web && bun test test                     # 17 offline tests for the desk layer
+bun scripts/live-smoke.ts                        # two managers, real signatures, every refusal
 
 # the whole product, on Base Sepolia, through the web origin so the rewrite is exercised too
 cd ../.. && set -a && . ./.env && set +a
-bun apps/desk/scripts/lifecycle.ts --size 1.0
+bun apps/web/scripts/lifecycle.ts --size 1.0
 ```
 
 `lifecycle.ts` ends in `FULL LIFECYCLE PASSED` or names the step that failed. It needs a funded client
@@ -178,7 +177,7 @@ These are the differences that matter, not a checklist of generalities.
 - **Mandates that predate the desk layer** belong to no manager and are therefore invisible to
   everyone. Assign them once, with the relayer's key rather than a session:
   ```bash
-  bun apps/desk/scripts/import.ts <manager-address> --name "Desk name" --all
+  bun apps/web/scripts/import.ts <manager-address> --name "Desk name" --all
   ```
   It refuses to reassign a mandate another manager already holds, and says which.
 - **Rotate `RELAYER_API_KEYS`** by adding the new key, restarting the desk layer with it, then dropping
