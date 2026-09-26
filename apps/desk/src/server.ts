@@ -18,12 +18,14 @@
 //   GET  /v1/activity/:owner       same
 //   POST /v1/clients/:token/link   passthrough — the intent signature is the auth
 //   POST /v1/intents               passthrough — same reason
+//   GET  /v1/pools[?owner=0x…]     the venues, read off each chain's PoolManager
 //   GET  /v1/chains, /healthz      passthrough
 import { isAddress } from "viem";
 
 import { AuthError, clearCookie, issueNonce, session, setCookie, signIn, signOut, upsertManager } from "./auth.js";
 import { PORT, routers } from "./config.js";
 import { key, open } from "./db.js";
+import { pools } from "./pools.js";
 import { type Bound, canReadMandate, canReadOwner, scopeCheck } from "./scope.js";
 import { type Mandate } from "./upstream.js";
 import * as upstream from "./upstream.js";
@@ -257,6 +259,30 @@ const server = Bun.serve({
         return json(await upstream.call(`/v1/${kind}/${addr}`));
       } catch (e) {
         return passUpstream(e);
+      }
+    }
+
+    // ---------------------------------------------------------------- the venues
+    //
+    // Behind a session, but not behind ownership: a pool's depth is public on chain and every manager
+    // here needs the same figures. An `owner` is only honoured when that owner is readable to this
+    // session — the position in a pool is a client's, not the venue's.
+    if (path === "/v1/pools" && req.method === "GET") {
+      if (!me) return deny("no_session", "sign in with your wallet first", 401);
+      const asked = url.searchParams.get("owner");
+      let owner: `0x${string}` | undefined;
+      if (asked) {
+        if (!isAddress(asked, { strict: false })) return json({ error: "owner must be an address", code: "bad_address" }, 400);
+        if (!canReadOwner(me, asked, await myBound(me))) {
+          return deny("not_yours", "that address is neither yours nor a client of yours");
+        }
+        owner = asked as `0x${string}`;
+      }
+      try {
+        return json({ pools: await pools(owner), owner: owner ?? null });
+      } catch (e) {
+        console.error("pool read failed", e);
+        return json({ error: "could not read the pools", code: "pools_unavailable" }, 502);
       }
     }
 

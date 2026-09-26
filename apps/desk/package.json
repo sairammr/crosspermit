@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@crosspermit/web": "workspace:*",
     "viem": "^2.21.0"
   }
 }

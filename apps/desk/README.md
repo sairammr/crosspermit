@@ -57,9 +57,27 @@ nothing at all.
 - **Desk registry.** Register the `LiquidityDesk` you deployed, per chain. Two managers cannot
   register one address — a shared deployment scopes neither of them, because `add(owner,…)` has no
   caller check and every manager on it can spend every bound client's allowance.
+- **Pools.** `GET /v1/pools[?owner=0x…]` reads each chain's v4 PoolManager with `extsload` — price,
+  tick, depth in both tokens over the offered range, and one client's own position when an owner is
+  asked for (and readable to the session). The slot math is imported from `apps/web`, not restated.
+  20s process cache. The page draws depth-by-chain bars and a price-within-range band, inline SVG,
+  no chart library.
 - **Scope check.** Every allowance a client signed, spender named: yours, an execution router,
   another manager's desk (named), or `unrecognised spender`. Foreign ones are counted and flagged,
   never quietly labelled.
+
+## Scripts
+
+```sh
+# assign mandates that predate this layer to a manager (needs the relayer's key, not a session)
+bun apps/desk/scripts/import.ts <manager-address> --name "Desk name" --all
+
+# drive a running layer with two real managers against the live relayer
+DESK_URL=http://localhost:8788 bun apps/desk/scripts/live-smoke.ts
+```
+
+`import.ts` is a script and not a route on purpose: claiming a mandate you did not create is exactly
+the privilege this layer withholds, so it belongs to whoever already holds the relayer's API key.
 
 ## Tests
 
