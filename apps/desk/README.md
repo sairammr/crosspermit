@@ -1,0 +1,82 @@
+# @crosspermit/desk
+
+A gatehouse in front of the relayer, so one deployment can serve many fund managers without their
+books, their clients or their desks running into each other.
+
+It lives in this repo as its own app and talks to `apps/relayer` over HTTP only — no imports, no
+shared database, no contract changes. The relayer runs exactly as it did before this existed.
+
+CrossPermit knows owners — an owner's signature is the only identity a permit needs. It does not know
+managers. That is why the reference relayer is single-tenant: one `RELAYER_API_KEY` is the whole desk,
+and the dashboard ships it to the browser. This layer supplies the missing half.
+
+```
+browser ──cookie earned by a signature──▶ crosspermit-desk ──Bearer key──▶ relayer ──▶ chains
+```
+
+See `PLAN.md` for what is fixed and what is deliberately left alone.
+
+## Run
+
+From the repo root, with `apps/relayer` already up:
+
+```sh
+bun install
+RELAYER_URL=http://localhost:8787 \
+RELAYER_API_KEY=<the relayer's key> \
+DESK_INSECURE_COOKIE=1 \
+bun run --filter @crosspermit/desk dev     # http://localhost:8788
+```
+
+Open it, connect a wallet, press **Prove you hold it**, sign. One `personal_sign` over a nonce this
+server issued; nothing on chain, no gas. That signature is the login.
+
+| env | |
+|---|---|
+| `RELAYER_URL` | upstream relayer (default `http://localhost:8787`) |
+| `RELAYER_API_KEY` | the relayer's key. Held here, never sent to a browser. |
+| `DESK_PORT` | default 8788 |
+| `DESK_DB` | sqlite path, default `desk.sqlite` |
+| `DESK_ROUTERS` | `{"84532":"0x…"}` — overrides the built-in testnet routers |
+| `DESK_INSECURE_COOKIE=1` | drop `Secure` so the cookie works over plain http locally |
+
+Put the relayer somewhere only this process can reach. The layer is a front door, not a firewall:
+the relayer's own `/v1/clients/:token` stays open by design, and its `/v1/treasury/:owner` asks for
+nothing at all.
+
+## What it does
+
+- **Proof of ownership.** Nonce → `personal_sign` → `verifyMessage` → HttpOnly session. Nonces are
+  single use and are burned even on a failed signature. No roles: what a session may read is computed
+  per request from the tables, so the same signature serves a manager reading their book and a client
+  reading their own exposure.
+- **Scoped book.** `GET /v1/clients` returns only mandates this manager created. Another manager
+  holding the token gets 403, including for `scope-check` and `revoke`.
+- **Gated exposure.** `GET /v1/treasury/:owner` and `/v1/activity/:owner` answer for your own address
+  or for a client bound to one of your mandates. An address in a URL stops being a credential.
+- **Desk registry.** Register the `LiquidityDesk` you deployed, per chain. Two managers cannot
+  register one address — a shared deployment scopes neither of them, because `add(owner,…)` has no
+  caller check and every manager on it can spend every bound client's allowance.
+- **Scope check.** Every allowance a client signed, spender named: yours, an execution router,
+  another manager's desk (named), or `unrecognised spender`. Foreign ones are counted and flagged,
+  never quietly labelled.
+
+## Tests
+
+```sh
+bun test
+```
+
+17 tests. `test/auth.test.ts` covers the challenge, nonce single-use, and the pure scoping rules.
+`test/e2e.test.ts` runs the real server against a stub relayer as permissive as the real one, with
+two managers signing real signatures, and asserts every refusal — including that the upstream key
+never appears in the page.
+
+## Not done here
+
+- A caller check inside `LiquidityDesk.add`. Contract change, out of scope by design; per-manager
+  deployments plus this registry get the scoping from outside.
+- Pointing `apps/web` at this layer. It still holds `NEXT_PUBLIC_RELAYER_API_KEY`; the page here is a
+  standalone replacement for the desk console's client-book half, not for the client signing page
+  `/c/:token`.
+- Contract-account sign-in (Safe, 7702). `verifyMessage` here is EOA-only — this process has no RPC.

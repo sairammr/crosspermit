@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Desk</title>
+    <style>
+      :root {
+        --bg: #fbfaf8; --ink: #171717; --dim: #6b6b6b; --line: #e2ddd6;
+        --accent: #f45108; --bad: #b42318; --panel: #fff;
+        font-family: ui-sans-serif, -apple-system, Helvetica, Arial, sans-serif;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root { --bg: #131211; --ink: #ecebe8; --dim: #97928c; --line: #2d2a27; --panel: #191817; --bad: #ff7a6b; }
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--bg); color: var(--ink); font-size: 14px; line-height: 1.5; }
+      main { max-width: 900px; margin: 0 auto; padding: 32px 16px 96px; }
+      h1 { font-size: 18px; margin: 0 0 4px; letter-spacing: -0.01em; }
+      h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); margin: 28px 0 8px; font-weight: 600; }
+      p { margin: 0 0 12px; }
+      .dim { color: var(--dim); }
+      .panel { background: var(--panel); border: 1px solid var(--line); padding: 16px; margin-bottom: 12px; }
+      button { font: inherit; background: var(--ink); color: var(--bg); border: 0; padding: 7px 14px; cursor: pointer; }
+      button.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+      button:disabled { opacity: 0.45; cursor: default; }
+      input { font: inherit; background: transparent; color: var(--ink); border: 1px solid var(--line); padding: 7px 10px; min-width: 0; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { text-align: left; padding: 6px 8px 6px 0; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+      th { color: var(--dim); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; }
+      code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
+      .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+      .tag { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; border: 1px solid var(--line); padding: 1px 6px; }
+      .flag { color: var(--bad); border-color: currentColor; }
+      .err { color: var(--bad); }
+      pre { white-space: pre-wrap; word-break: break-word; margin: 0; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Desk</h1>
+      <p class="dim">
+        One relayer, many managers. Your wallet is your login; your clients are only yours; an allowance naming a desk
+        that is not yours gets flagged rather than labelled.
+      </p>
+
+      <div class="panel" id="auth">
+        <div class="row">
+          <button id="connect">Connect wallet</button>
+          <button id="signin" class="ghost" hidden>Prove you hold it</button>
+          <button id="signout" class="ghost" hidden>Sign out</button>
+          <span class="mono dim" id="who"></span>
+        </div>
+        <p class="dim" id="authnote" style="margin: 10px 0 0">
+          Connecting shows an address. It does not prove you hold the key — the second button does, with one signature
+          that grants nothing and costs no gas.
+        </p>
+        <p class="err" id="autherr" hidden></p>
+      </div>
+
+      <div id="app" hidden>
+        <h2>Your desk</h2>
+        <div class="panel">
+          <div class="row">
+            <input id="name" placeholder="display name" />
+            <button id="savename" class="ghost">Save</button>
+          </div>
+          <p class="dim" style="margin: 12px 0 8px">
+            Register the <code>LiquidityDesk</code> you deployed, per chain. Allowances naming it are yours; anything
+            else on a client of yours is called out below. Two managers cannot register one address — a shared
+            deployment scopes neither of them.
+          </p>
+          <div class="row">
+            <input id="deskchain" placeholder="chain id" style="width: 110px" />
+            <input id="deskaddr" placeholder="0x… desk address" style="flex: 1" />
+            <button id="savedesk" class="ghost">Register</button>
+          </div>
+          <table id="desks" style="margin-top: 12px"></table>
+        </div>
+
+        <h2>Clients</h2>
+        <div class="panel">
+          <div class="row">
+            <input id="cname" placeholder="client name" style="flex: 1" />
+            <input id="cmandate" placeholder="what you are asking for (optional)" style="flex: 2" />
+            <button id="create">Open a link</button>
+          </div>
+          <p class="err" id="bookerr" hidden></p>
+          <table id="book" style="margin-top: 12px"></table>
+        </div>
+
+        <div id="checkwrap" hidden>
+          <h2>Scope check</h2>
+          <div class="panel"><div id="check"></div></div>
+        </div>
+      </div>
+    </main>
+
+    <script type="module">
+      const $ = (id) => document.getElementById(id);
+      const short = (s, n = 6) => (s && s.length > 2 * n ? `${s.slice(0, n)}…${s.slice(-4)}` : s ?? "—");
+
+      // Same-origin, so the session cookie rides along without any token in JS reach.
+      async function api(path, init = {}) {
+        const res = await fetch(path, {
+          ...init,
+          headers: { "content-type": "application/json", ...(init.headers ?? {}) },
+          body: init.body === undefined ? undefined : JSON.stringify(init.body),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
+        return body;
+      }
+
+      let account = null;
+
+      const eth = () => {
+        if (!window.ethereum) throw new Error("no injected wallet in this browser");
+        return window.ethereum;
+      };
+
+      $("connect").onclick = async () => {
+        try {
+          $("autherr").hidden = true;
+          const [a] = await eth().request({ method: "eth_requestAccounts" });
+          account = a;
+          $("who").textContent = `connected ${short(a)} — unproven`;
+          $("signin").hidden = false;
+        } catch (e) {
+          fail(e);
+        }
+      };
+
+      // Proof of ownership: the server issues a nonce, the wallet signs the exact text, the server
+      // recovers it. Nothing about the address in the URL or in this script is trusted.
+      $("signin").onclick = async () => {
+        try {
+          $("autherr").hidden = true;
+          const { nonce, message } = await api("/v1/auth/nonce", { method: "POST", body: { address: account } });
+          const signature = await eth().request({ method: "personal_sign", params: [message, account] });
+          await api("/v1/auth/verify", { method: "POST", body: { address: account, nonce, signature } });
+          await load();
+        } catch (e) {
+          fail(e);
+        }
+      };
+
+      $("signout").onclick = async () => {
+        await api("/v1/auth/signout", { method: "POST" });
+        location.reload();
+      };
+
+      $("savename").onclick = async () => {
+        await api("/v1/auth/me", { method: "PUT", body: { name: $("name").value } }).catch(fail);
+        load();
+      };
+
+      $("savedesk").onclick = async () => {
+        try {
+          $("autherr").hidden = true;
+          await api(`/v1/desks/${Number($("deskchain").value)}`, { method: "PUT", body: { desk: $("deskaddr").value.trim() } });
+          $("deskaddr").value = "";
+          load();
+        } catch (e) {
+          fail(e);
+        }
+      };
+
+      $("create").onclick = async () => {
+        try {
+          $("bookerr").hidden = true;
+          await api("/v1/clients", { method: "POST", body: { name: $("cname").value, mandate: $("cmandate").value } });
+          $("cname").value = "";
+          $("cmandate").value = "";
+          load();
+        } catch (e) {
+          $("bookerr").textContent = e.message;
+          $("bookerr").hidden = false;
+        }
+      };
+
+      function fail(e) {
+        $("autherr").textContent = e.message ?? String(e);
+        $("autherr").hidden = false;
+      }
+
+      async function load() {
+        let me;
+        try {
+          me = await api("/v1/auth/me");
+        } catch {
+          $("app").hidden = true;
+          return;
+        }
+        $("app").hidden = false;
+        $("signin").hidden = true;
+        $("signout").hidden = false;
+        $("connect").hidden = true;
+        $("authnote").hidden = true;
+        $("who").textContent = `${short(me.address)} — ownership proven`;
+        $("name").value = me.manager.name ?? "";
+
+        $("desks").innerHTML =
+          `<tr><th>chain</th><th>your desk</th></tr>` +
+          (me.desks.length
+            ? me.desks.map((d) => `<tr><td>${d.chainId}</td><td class="mono">${d.desk}</td></tr>`).join("")
+            : `<tr><td colspan="2" class="dim">none registered — every liquidity allowance will read as unrecognised</td></tr>`);
+
+        const { clients } = await api("/v1/clients");
+        $("book").innerHTML =
+          `<tr><th>client</th><th>status</th><th>owner</th><th>link</th><th></th></tr>` +
+          (clients.length
+            ? clients
+                .map(
+                  (c) => `<tr>
+                    <td>${escape(c.name)}</td>
+                    <td><span class="tag">${c.status}</span></td>
+                    <td class="mono">${short(c.owner)}</td>
+                    <td class="mono dim">/c/${c.token.slice(0, 8)}…</td>
+                    <td><button class="ghost" data-check="${c.token}">Scope check</button></td>
+                  </tr>`,
+                )
+                .join("")
+            : `<tr><td colspan="5" class="dim">no clients yet</td></tr>`);
+
+        for (const b of document.querySelectorAll("[data-check]")) b.onclick = () => check(b.dataset.check);
+      }
+
+      async function check(token) {
+        $("checkwrap").hidden = false;
+        $("check").innerHTML = `<p class="dim">Reading the ledger…</p>`;
+        try {
+          const out = await api(`/v1/clients/${token}/scope-check`);
+          if (!out.owner) {
+            $("check").innerHTML = `<p class="dim">Nobody has signed this link yet, so there is nothing to scope.</p>`;
+            return;
+          }
+          const head = out.ok
+            ? `<p>Every allowance this client signed names your desk or an execution router.</p>`
+            : `<p class="err">${out.foreign.length} allowance(s) name a spender that is not yours. The client authorised
+               them; nothing here can undo that. A cross-chain LOCK can.</p>`;
+          $("check").innerHTML =
+            head +
+            `<p class="dim mono">owner ${out.owner}</p>` +
+            `<table><tr><th>chain</th><th>token</th><th>spender</th><th>amount</th><th></th></tr>` +
+            out.rows
+              .map(
+                (r) => `<tr>
+                  <td>${r.chainId}</td>
+                  <td class="mono">${short(r.token)}</td>
+                  <td class="mono">${short(r.spender)}</td>
+                  <td class="mono">${r.amount}</td>
+                  <td><span class="tag ${r.kind === "mine" || r.kind === "router" ? "" : "flag"}">${r.label}</span></td>
+                </tr>`,
+              )
+              .join("") +
+            `</table>` +
+            (out.uncovered?.length
+              ? `<p class="dim" style="margin-top:10px">Chains ${out.uncovered.join(", ")} have no event index here, so
+                 this is not their answer — it is silence.</p>`
+              : "");
+        } catch (e) {
+          $("check").innerHTML = `<p class="err">${escape(e.message)}</p>`;
+        }
+      }
+
+      const escape = (s) => String(s ?? "").replace(/[<>&"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" })[c]);
+
+      // A session outlives the tab, so show the book on load if one is already open.
+      load();
+    </script>
+  </body>
+</html>
