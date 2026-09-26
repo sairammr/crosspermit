@@ -16,3 +16,6 @@ apps/relayer/*.sqlite*
 *.log
 contracts/fixtures/
 contracts/foundry-pp/
+apps/web/.next/
+apps/web/next-env.d.ts
+apps/web/tsconfig.tsbuildinfo
