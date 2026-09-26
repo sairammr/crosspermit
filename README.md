@@ -185,35 +185,6 @@ matters — `FORK=1 forge test --match-contract RouterFork`, where a live `V4_SW
 CrossPermit allowance and out of nothing else. There is no runtime-bytecode check in this repo; an
 earlier version of this file claimed one.
 
-## What is real, and what is demo scope
-
-The scope boundary, stated plainly, because a judge will find it anyway.
-
-- **Every token in the UI is a mock.** `contracts/src/mocks/MockUSDC.sol` is an ERC-20 named
-  `"USD Coin"`, symbol `USDC`, 6 decimals, with `function mint(address,uint256) external` open to
-  anyone. It displays as "USDC" in the dashboard because the symbol is read on-chain. Deployed at
-  `deployments/token-*.json` and `token2-*.json`. There is no real USDC anywhere in the demo.
-- **The pools are this repo's own.** `deployments/v4pool-*.json` are mock/mock pairs initialised at
-  1:1 by `contracts/src/V4PoolSeeder.sol` against Uniswap's **real** v4 `PoolManager` on each
-  testnet. The PoolManager is real, the swap is real, the liquidity is ours. The client screen's
-  drift chart is titled for exactly that reason.
-- **`contracts/src/treasury/*` is deployed on no chain.** `YieldRouter` (Aave v4) and `EquityDesk`
-  (tokenized equities) exist only in `contracts/test/TreasuryFork.t.sol`, on a mainnet fork. No
-  `deployments/*.json` names either. The equity **venue adapter is a mock**: NVDAon's on-chain route
-  is the issuer's gated mint/redeem window, not an AMM a fork can trade against.
-- **`contracts/src/modules/ERC7702Approver.sol` has no caller in this repo.** It is deployed
-  alongside CrossPermit by `contracts/script/DeployCrossPermit.s.sol:38`, and nothing in
-  `packages/` or `apps/` invokes it. It is inherited surface kept compiling, not a shipped feature.
-  Since the self-call guard landed it can only be reached through the caller's own ERC-7702
-  delegation (`msg.sender == address(this)`, else `NotSelf()`), never on the deployed copy.
-- **`MultiTokenTransfer`'s ERC-721 and ERC-1155 surface has no caller either.** It is tested and
-  compiled; the product only moves ERC-20s.
-- **`contracts/src/lib/WitnessEncoder.sol` and `contracts/src/modules/ERC7579ApproverModule.sol` are
-  gone.** There is no ERC-7579 module support in this tree any more.
-- **Custody is a local key on every chain.** The MultiBaas Cloud Wallet path is written and
-  compile-checked, never exercised — an HSM key needs an Azure Premium vault.
-- **MultiBaas covers two of three chains.** The free tier allows two deployments. Optimism Sepolia
-  has no control-plane audit trail, and every screen says so rather than rendering an empty history.
 
 ## Run it
 
