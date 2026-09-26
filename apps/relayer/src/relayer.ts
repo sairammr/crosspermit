@@ -15,6 +15,8 @@ import { type Intent, IntentError, crossPermitAbi, intentId, validateIntent, ver
 import type { ChainRuntime, RelayerConfig } from "./config.js";
 import type { LegRow, Store } from "./store.js";
 
+export type GasCharge = (owner: `0x${string}`, wei: bigint) => void;
+
 export type LegEvent = {
   intentId: string;
   chainId: number;
@@ -32,6 +34,8 @@ export class Relayer {
   constructor(
     private readonly config: RelayerConfig,
     private readonly store: Store,
+    /** Called with the gas a leg actually cost, so an admission budget can be charged. */
+    private readonly onGasSpent: GasCharge = () => {},
   ) {}
 
   on(id: string, fn: Listener): () => void {
@@ -168,6 +172,9 @@ export class Relayer {
     try {
       const receipt = await chain.client.waitForTransactionReceipt({ hash: txHash });
       const ok = receipt.status === "success";
+      // Charged from the receipt, not from an estimate. A reverted transaction still burned gas, so
+      // it is charged too — otherwise a caller could grind the relayer's balance with failures.
+      this.onGasSpent(intent.owner, receipt.gasUsed * receipt.effectiveGasPrice);
       this.store.finish(id, leg.chainId, ok ? "confirmed" : "failed", txHash, ok ? null : "transaction reverted");
       this.emit({
         intentId: id,

@@ -8,6 +8,8 @@
 //   GET  /healthz /readyz       liveness and readiness
 import { IntentError, fromWire } from "@crosspermit/sdk";
 
+import { Admission, admissionFromEnv } from "./admission.js";
+
 import { loadConfig } from "./config.js";
 import { Relayer } from "./relayer.js";
 import { Store } from "./store.js";
@@ -15,11 +17,22 @@ import { Store } from "./store.js";
 const repoRoot = new URL("../../../", import.meta.url);
 const { config, banner } = await loadConfig(repoRoot);
 const store = new Store(config.dbPath);
-const relayer = new Relayer(config, store);
+const admissionConfig = admissionFromEnv();
+const admission = new Admission(admissionConfig);
+const relayer = new Relayer(config, store, (owner, wei) => admission.chargeGas(owner, wei));
 
 console.log("crosspermit-relayer");
 for (const line of banner) console.log(line.startsWith("  ") ? line : `  ${line}`);
 for (const line of await config.treasury.describe([...config.chains.keys()])) console.log(line);
+console.log(
+  admission.open
+    ? "  admission: OPEN — no RELAYER_API_KEYS set, anyone who can reach this port can spend its gas"
+    : `  admission: ${admissionConfig.apiKeys.size} API key(s)`,
+);
+console.log(
+  `  per-owner limits: ${admissionConfig.maxIntentsPerWindow} intents and ` +
+    `${admissionConfig.maxGasWeiPerWindow} wei of gas per ${admissionConfig.windowMs}ms`,
+);
 
 // A leg stuck in `submitting` may have a transaction in the mempool whose hash we never saw.
 // Resubmitting it blind is how one signed allowance becomes two on chain, so report and stop.
@@ -39,7 +52,7 @@ const json = (body: unknown, status = 200) =>
 // are exposed, and every request is authorised by the owner's signature rather than by origin.
 const cors = {
   "access-control-allow-origin": process.env.RELAYER_CORS_ORIGIN ?? "*",
-  "access-control-allow-headers": "content-type",
+  "access-control-allow-headers": "content-type,authorization",
   "access-control-allow-methods": "GET,POST,OPTIONS",
 };
 
@@ -70,14 +83,25 @@ const server = Bun.serve({
     }
 
     if (path === "/v1/intents" && req.method === "POST") {
+      const key = admission.checkKey(req.headers.get("authorization")?.replace(/^Bearer /i, "") ?? null);
+      if (!key.ok) return json({ error: key.message, code: key.code }, key.status);
+
       let intent;
       try {
         intent = fromWire(await req.json());
       } catch (e) {
         return json({ error: e instanceof IntentError ? e.message : "body is not valid JSON", code: "malformed" }, 400);
       }
+
+      // Rate and budget are checked against the OWNER, the only identity the signature proves.
+      // Checked before validation so a flood cannot make the relayer do crypto work for free.
+      const allowed = admission.checkOwner(intent.owner);
+      if (!allowed.ok) return json({ error: allowed.message, code: allowed.code }, allowed.status);
+
       try {
         const res = await relayer.submit(intent, { wait: url.searchParams.get("wait") === "1" });
+        // Only a genuinely new intent counts against the window; a replay is answered from state.
+        if (res.accepted) admission.recordIntent(intent.owner);
         // 200 rather than 201 on a replay: nothing was created, and the caller gets the first run's
         // result so a retry is safe.
         return json({ intentId: res.id, accepted: res.accepted, ...relayer.status(res.id) }, res.accepted ? 201 : 200);
@@ -87,6 +111,9 @@ const server = Bun.serve({
         return json({ error: "internal error", code: "internal" }, 500);
       }
     }
+
+    const quota = path.match(/^\/v1\/quota\/(0x[0-9a-fA-F]{40})$/);
+    if (quota) return json({ owner: quota[1], remaining: admission.remaining(quota[1] as `0x${string}`) });
 
     if (path === "/v1/intents" && req.method === "GET") {
       return json({ intents: store.recent(Number(url.searchParams.get("limit") ?? 50)) });

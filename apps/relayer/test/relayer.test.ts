@@ -9,6 +9,7 @@ import { type Intent, IntentError, approveEntry, prepareIntent } from "@crossper
 import type { Signer } from "@crosspermit/multibaas";
 
 import type { ChainRuntime, RelayerConfig } from "../src/config.js";
+import { Admission } from "../src/admission.js";
 import { Relayer } from "../src/relayer.js";
 import { Store } from "../src/store.js";
 
@@ -237,5 +238,61 @@ describe("events", () => {
 
     expect(relayer.status(id)!.done).toBe(true);
     expect(seen.length).toBeGreaterThan(0);
+  });
+});
+
+describe("admission", () => {
+  const cfg = () => ({
+    apiKeys: new Set(["good-key"]),
+    maxIntentsPerWindow: 3,
+    windowMs: 60_000,
+    maxGasWeiPerWindow: 1_000n,
+  });
+
+  test("an open relayer accepts anyone, and says so", () => {
+    const a = new Admission({ ...cfg(), apiKeys: new Set() });
+    expect(a.open).toBe(true);
+    expect(a.checkKey(null).ok).toBe(true);
+  });
+
+  test("a keyed relayer refuses a missing or wrong key", () => {
+    const a = new Admission(cfg());
+    expect(a.open).toBe(false);
+    expect(a.checkKey(null)).toMatchObject({ ok: false, code: "no_api_key", status: 401 });
+    expect(a.checkKey("nope")).toMatchObject({ ok: false, code: "bad_api_key", status: 401 });
+    expect(a.checkKey("good-key").ok).toBe(true);
+    // Same length as the real key, so this fails on content rather than on the length short-circuit.
+    expect(a.checkKey("good-kez")).toMatchObject({ ok: false, code: "bad_api_key" });
+  });
+
+  test("rate limits per owner, and limits are independent between owners", () => {
+    const a = new Admission(cfg());
+    const alice = "0x1111111111111111111111111111111111111111" as Address;
+    const bob = "0x2222222222222222222222222222222222222222" as Address;
+
+    for (let i = 0; i < 3; i++) {
+      expect(a.checkOwner(alice).ok).toBe(true);
+      a.recordIntent(alice);
+    }
+    expect(a.checkOwner(alice)).toMatchObject({ ok: false, code: "rate_limited", status: 429 });
+    // Bob is untouched by Alice's flood — otherwise one caller could deny service to everyone.
+    expect(a.checkOwner(bob).ok).toBe(true);
+  });
+
+  test("an exhausted gas budget stops further intents", () => {
+    const a = new Admission(cfg());
+    const alice = "0x1111111111111111111111111111111111111111" as Address;
+    expect(a.checkOwner(alice).ok).toBe(true);
+    a.chargeGas(alice, 1_500n);
+    expect(a.checkOwner(alice)).toMatchObject({ ok: false, code: "gas_budget_exhausted" });
+  });
+
+  test("the window rolls over", () => {
+    const a = new Admission({ ...cfg(), windowMs: 1 });
+    const alice = "0x1111111111111111111111111111111111111111" as Address;
+    for (let i = 0; i < 3; i++) a.recordIntent(alice);
+    expect(a.checkOwner(alice).ok).toBe(false);
+    Bun.sleepSync(5);
+    expect(a.checkOwner(alice).ok).toBe(true);
   });
 });
