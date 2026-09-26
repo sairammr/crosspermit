@@ -74,6 +74,10 @@ bun apps/desk/scripts/import.ts <manager-address> --name "Desk name" --all
 
 # drive a running layer with two real managers against the live relayer
 DESK_URL=http://localhost:8788 bun apps/desk/scripts/live-smoke.ts
+
+# the whole lifecycle on Base Sepolia, through the web origin: link → client's signature →
+# allowance → add() → the client taking it back. Three distinct keys.
+set -a && . ./.env && set +a && bun apps/desk/scripts/lifecycle.ts --size 1.0
 ```
 
 `import.ts` is a script and not a route on purpose: claiming a mandate you did not create is exactly

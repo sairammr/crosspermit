@@ -7,7 +7,7 @@ import { useAccount, useSignTypedData, useSwitchChain } from "wagmi";
 import { SIGNING_CHAIN_ID, approveEntry, lockEntry, prepareIntent, toWire } from "@crosspermit/sdk";
 import { CHAINS, CROSS_PERMIT, RELAYER_URL, WC_PROJECT_ID, chainById } from "../../src/config";
 import { ProveOwnership } from "../../src/session-ui";
-import { onSigningChain, openAppKit } from "../../src/wagmi";
+import { onSigningChain } from "../../src/wagmi";
 import { HorseMatrix } from "../../src/dithergraph";
 import { ClientsTab, StrategiesTab } from "./desk";
 import {
@@ -72,19 +72,9 @@ export default function Page() {
         </nav>
 
         <div className="row" style={{ gap: 14 }}>
-          <span className={`status ${isConnected ? "active" : ""}`}>
-            <i />
-            {isConnected ? "connected" : "no wallet"}
-          </span>
-          <button
-            className={`btn btn-sm ${isConnected ? "" : "btn-action"}`}
-            type="button"
-            onClick={() => openAppKit(isConnected ? { view: "Account" } : undefined)}
-          >
-            <span className="cap">{isConnected && address ? short(address, 6) : "Connect wallet"}</span>
-          </button>
-          {/* The desk's own identity. Connecting shows an address; this proves the key behind it,
-              which is what the layer needs before it will show anyone a book. */}
+          {/* One control, not two. Connecting a wallet and proving you hold its key are different
+              facts, but they were never two decisions — this walks both, and afterwards it is the
+              account button. */}
           <ProveOwnership onChange={() => setRefreshKey((k) => k + 1)} />
         </div>
       </header>
