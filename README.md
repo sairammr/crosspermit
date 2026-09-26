@@ -188,6 +188,7 @@ contracts/test/           forge suite: cross-chain flow, encoding parity, live-c
 packages/sdk/             the client: bundles, leaves, merkle tree, the one signature, cancellation
 packages/multibaas/       MultiBaas control plane: custody, indexing, allowance ledger, audit trail
 apps/relayer/             one POST, N chains; admission control, simulation, SSE, client mandates
+apps/desk/                the multi-manager layer: wallet sign-in, scoped books, desk registry, pools
 apps/web/                 the landing page, the desk, and the client's mandate page
 script/deploy.sh          deterministic CrossPermit deploy, then the router
 script/test.sh            every offline check, in the order a change should break it
@@ -195,6 +196,10 @@ PLAN.md                   the full build plan, phase by phase, and what is still
 ```
 
 ## Run it
+
+Deploying the whole thing — contracts, relayer, desk layer, dashboard — is in **[DEPLOY.md](DEPLOY.md)**:
+every environment variable, who reads it, what must not face the internet, and the order to verify in.
+What follows is the short version for working on it locally.
 
 ```bash
 cp .env.example .env          # fill in PRIVATE_KEY and the RPCs
@@ -224,9 +229,15 @@ bun run packages/sdk/scripts/lifecycle.ts
 bun run apps/relayer/src/server.ts &
 bun run packages/sdk/scripts/lifecycle.ts --only authorize --via-relayer http://localhost:8787
 
+# the desk layer, in front of the relayer: wallet sign-in, one book per manager
+RELAYER_API_KEY="$RELAYER_API_KEY" DESK_INSECURE_COOKIE=1 bun apps/desk/src/server.ts &
+
 # the site: landing page, the desk at /app, a client's mandate at /c/<token>
-cp apps/web/.env.example apps/web/.env.local   # a Reown project id, and the desk's relayer key
-cd apps/web && bun run build && bunx next start -p 3100
+cp apps/web/.env.example apps/web/.env.local   # a Reown project id, and DESK_URL
+cd apps/web && bun run build && bunx next start -p 3000
+
+# the whole product end to end, through the web origin: link, signature, allowance, LP, withdrawal
+bun apps/desk/scripts/lifecycle.ts --size 1.0
 ```
 
 The dashboard also takes `?owner=0x...` for a read-only view of someone else's
