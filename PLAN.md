@@ -133,30 +133,39 @@ identity:
 
 ---
 
-## P2 — SDK
+## P2 — SDK (done)
 
 `packages/sdk` — the client half, and the only place a permission is ever built.
 
-- `bundle.ts` — `approveEntry` / `transferEntry` / `lockEntry`, `tokenKey`, the
-  `modeOrExpiration` encoding.
-- `leaf.ts` — `leafOf` computes `hashChainPermits` **locally**. This must never
-  come from an `eth_call`: the leaf is the only thing between the user and a root
-  they did not build. A hostile RPC that answers with the hash of its own bundle
-  would have the wallet display nothing but an opaque `merkleRoot`.
-  `leafOfChecked` computes locally and then asserts the chain agrees.
-- `merkle.ts` — left-leaning tree, OpenZeppelin sorted-pair hashing (what
-  `MerkleProof.processProof` reconstructs with). Last leaf sits one hop from the
-  root, so order the chains cheapest-first, most-expensive-last.
-- `sign.ts` — `signRoot`, domain `chainId` pinned to 1. Not a bug; do not
-  substitute the live chain id.
-- `submit.ts` — per-chain submission.
-- `intent.ts` — the one-click envelope the relayer consumes: `{owner, salt,
-  deadline, timestamp, root, signature, chains: [{chainId, bundle, proof}]}`.
+- `crosspermit.ts` — bundle entries (`approveEntry` / `transferEntry` / `lockEntry`,
+  `tokenKey`, the `modeOrExpiration` encoding), `leafOf`, the left-leaning merkle
+  tree, `signRoot`, and per-chain submission.
+  `leafOf` computes `hashChainPermits` **locally** and must never come from an
+  `eth_call`: the leaf is the only thing between the signer and a root they did
+  not build — a hostile RPC answering with the hash of its own bundle would have
+  the wallet display nothing but an opaque `merkleRoot`. `leafOfChecked` computes
+  locally and then asserts the chain agrees.
+  The merkle tree uses OpenZeppelin sorted-pair hashing, which is what
+  `MerkleProof.processProof` reconstructs with. The last leaf sits one hop from
+  the root, so order the chains cheapest-first, dearest-last.
+  `signRoot` pins the domain `chainId` to 1. Not a bug; do not substitute the
+  live chain id.
+- `intent.ts` — the one-click envelope the relayer consumes, plus every offline
+  authorisation check and the all-strings wire format (`bigint` does not survive
+  JSON, and coercing to `number` would round a `uint160`).
+- `cancel.ts` — cross-chain retraction. Reproduces `hashNoncesToInvalidate`
+  including its non-EIP-712 quirk: the contract `abi.encode`s the salts array
+  rather than hashing it, and matching the contract matters more than matching
+  the spec.
+- `router.ts` — Universal Router v4 swap and `PERMIT2_TRANSFER_FROM` encoding.
+
+Kept as four files rather than the six the first draft proposed: splitting ~250
+lines of cohesive client code across six modules is structure for its own sake.
 
 **Verification:** `bun test` in the package, plus P3's parity tests pinning the
 SDK against the compiled contract.
 
-## P3 — Tests
+## P3 — Tests (done)
 
 Ported from the reference harness, renamed, plus new coverage.
 
@@ -186,7 +195,7 @@ Ported from the reference harness, renamed, plus new coverage.
 **Verification:** `forge test` green offline; `FORK=1 forge test` green against
 the three live testnets.
 
-## P4 — Deterministic deployment
+## P4 — Deterministic deployment (done)
 
 - `script/DeployCrossPermit.s.sol` — ERC-2470 (`0xce0042B8…`) singleton factory,
   salt from env. Deploys `CrossPermit`, then `ERC7702Approver` at
@@ -208,7 +217,7 @@ the three live testnets.
 `DOMAIN_SEPARATOR()` and `SIGNED_CROSSPERMIT_TYPEHASH()` off all three live
 deployments and assert they are byte-identical.
 
-## P5 — Relayer: one click, N chains
+## P5 — Relayer: one click, N chains (done)
 
 `apps/relayer`. The user signs once; the relayer does the rest.
 
@@ -253,7 +262,7 @@ per (intent, chain), so a restart resumes rather than double-submits.
 one POST ⇒ three confirmed permits; kill the relayer mid-fan-out and assert the
 restart neither double-submits nor strands a chain.
 
-## P6 — MultiBaas as the treasury platform
+## P6 — MultiBaas as the treasury platform (done)
 
 MultiBaas (Curvegrid) is the institutional control plane: custody, policy, audit
 trail, and a transaction manager that resubmits for you.
