@@ -36,7 +36,7 @@ struct ExactInSingle {
  *
  *   FORK=1 forge test --match-contract RouterFork -vv
  */
-contract V4SwapForkTest is Test {
+contract RouterForkTest is Test {
     using stdJson for string;
 
     // universal-router script/deployParameters/Deploy*.s.sol -> v4PoolManager.
@@ -149,9 +149,9 @@ contract V4SwapForkTest is Test {
 
     /// @dev Two fresh tokens, a pool holding them, and an owner funded and approved to CrossPermit.
     function _bootstrapPool(address poolManager, string memory deployment) internal {
-        crossPermit = CrossPermit(vm.readFile("deployments/crossPermit.json").readAddress(".address"));
+        crossPermit = CrossPermit(vm.readFile("../deployments/crosspermit.json").readAddress(".address"));
         router = IUniversalRouter(
-            vm.readFile(string.concat("deployments/ur-p3-", deployment, ".json")).readAddress(".universalRouter")
+            vm.readFile(string.concat("../deployments/router-", deployment, ".json")).readAddress(".universalRouter")
         );
         assertGt(address(crossPermit).code.length, 0, "CrossPermit not deployed on this chain");
         assertGt(address(router).code.length, 0, "the CrossPermit router not deployed on this chain");
