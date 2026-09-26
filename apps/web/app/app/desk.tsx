@@ -9,12 +9,14 @@
  * differ, the screen says so instead of rendering a button that cannot work.
  */
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { formatUnits, parseUnits } from "viem";
+import { useReadContract } from "wagmi";
 
-import { CHAINS, chainById } from "../../src/config";
+import { crossPermitAbi } from "@crosspermit/sdk";
+import { CHAINS, CROSS_PERMIT, chainById } from "../../src/config";
 import { type ClientMandate, createClient, revokeClient, useClients } from "../../src/clients";
-import { type AllowanceRow, useTreasury } from "../../src/relayer";
+import { useTreasury } from "../../src/relayer";
 
 const short = (s: string, n = 6) => (s.length > 2 * n ? `${s.slice(0, n)}…${s.slice(-4)}` : s);
 
@@ -219,6 +221,75 @@ function CopyLink({ token, label = "copy" }: { token: string; label?: string }) 
   );
 }
 
+// ---------------------------------------------------------------- deployable capital
+
+/**
+ * One chain's outstanding authority to the execution desk, read from that chain's own storage.
+ *
+ * Read per chain rather than as one batched `useReadContracts`. Batching routes every read through
+ * Multicall3, and a Multicall3 hop that fails reports the inner call as having "returned no data",
+ * which is indistinguishable from a contract that is not there. A plain `eth_call` either answers
+ * or errors, and on a screen where the difference between "zero" and "unknown" is the difference
+ * between deploying capital and not, that distinction is worth more than one round trip.
+ */
+function useAllowance(chain: (typeof CHAINS)[number], owner?: `0x${string}`) {
+  const read = useReadContract({
+    address: CROSS_PERMIT,
+    abi: crossPermitAbi,
+    functionName: "allowance",
+    args: [owner as `0x${string}`, chain.token, chain.router],
+    chainId: chain.id,
+    query: { enabled: Boolean(owner), refetchInterval: 20_000, retry: 2 },
+  });
+
+  if (!owner) return { state: "idle" as const };
+  if (read.isLoading) return { state: "loading" as const };
+  if (read.error || !read.data) {
+    return { state: "unreadable" as const, why: String(read.error ?? "no data").slice(0, 300) };
+  }
+
+  const [amount, expiration] = read.data as readonly [bigint, number, number];
+  // Expiration 0 is a LOCK, not an unbounded grant: the contract zeroes the amount and holds it
+  // there. Either way there is nothing to deploy.
+  const live = expiration > Math.floor(Date.now() / 1000);
+  return { state: "ok" as const, amount: live ? amount : 0n, expiration, expired: !live && amount > 0n };
+}
+
+function Deployable({ chain, owner }: { chain: (typeof CHAINS)[number]; owner?: `0x${string}` }) {
+  const a = useAllowance(chain, owner);
+  if (a.state === "ok") return <>{formatUnits(a.amount, 6)}</>;
+  return <span title={a.state === "unreadable" ? a.why : undefined}>—</span>;
+}
+
+function ChainCapital({
+  chain,
+  owner,
+  uncovered,
+}: {
+  chain: (typeof CHAINS)[number];
+  owner?: `0x${string}`;
+  uncovered: boolean;
+}) {
+  const a = useAllowance(chain, owner);
+  const audit = uncovered ? " · no control-plane audit trail here" : "";
+
+  return (
+    <div className="stat" title={a.state === "unreadable" ? a.why : undefined}>
+      <div className="k">{chain.name}</div>
+      <div className="v">{a.state === "ok" ? formatUnits(a.amount, 6) : "—"}</div>
+      <div className="n">
+        {a.state === "loading" && `reading ${chain.name}…`}
+        {a.state === "idle" && "no account selected"}
+        {/* Never "0". A chain that could not be read has an unknown allowance, and saying zero would
+            tell the desk a client has no authority where they may have a great deal. */}
+        {a.state === "unreadable" && "could not be read — unknown, not zero"}
+        {a.state === "ok" && (a.expired ? "expired — nothing deployable" : "unexpired allowance, 6dp")}
+        {audit}
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------- strategies
 
 /**
@@ -267,43 +338,64 @@ const STRATEGIES = [
 ] as const;
 
 export function StrategiesTab({ owner, refreshKey }: { owner?: `0x${string}`; refreshKey: number }) {
-  const treasury = useTreasury(owner, refreshKey);
+  const clients = useClients(refreshKey);
+  const active = Array.isArray(clients) ? clients.filter((c) => c.owner && c.status === "active") : [];
+  const [picked, setPicked] = useState<string>("");
 
-  // Deployable capital is the outstanding, unlocked authority — not a balance. A treasury screen
-  // that adds locked rows into a headline number tells the desk it can trade money it cannot touch.
-  const deployable = useMemo(() => {
-    const rows: AllowanceRow[] = treasury ? (treasury.rows ?? []) : [];
-    const byChain = new Map<number, bigint>();
-    for (const r of rows) {
-      if (r.state !== "active") continue;
-      byChain.set(r.chainId, (byChain.get(r.chainId) ?? 0n) + BigInt(r.amount));
-    }
-    return byChain;
-  }, [treasury]);
+  // The desk manages client capital, so the subject of this screen is a client by default and the
+  // connected wallet only when no client is chosen. Whose figures these are is named on the page:
+  // a treasury screen that silently switched account would be worse than one that showed nothing.
+  const chosen = active.find((c) => c.token === picked);
+  const subject = (chosen?.owner as `0x${string}` | undefined) ?? owner;
+  // Only for which chains carry a control-plane audit trail. The figures themselves come from
+  // storage, below.
+  const treasury = useTreasury(subject, refreshKey);
 
   return (
     <>
       <div className="panel">
         <h2>Deployable now</h2>
         <p className="sub">
-          Outstanding, unlocked authority per chain — what the desk may spend today. Locked and
-          expired rows are excluded rather than summed.
+          Read off each chain's own storage: the allowance still standing to the execution desk, with
+          locked and expired ones counted as nothing.
         </p>
-        {!owner && <p className="note">Connect a wallet, or open with <code>?owner=0x…</code>, to read a mandate.</p>}
-        {owner && treasury === null && <p className="note">Reading the ledger…</p>}
-        {owner && treasury === false && <p className="note">The relayer did not answer.</p>}
-        {owner && treasury && (
+
+        <div className="row" style={{ gap: 12, alignItems: "center", marginBottom: 12 }}>
+          <label className="field" style={{ minWidth: 260 }}>
+            <span className="lbl">Whose capital</span>
+            <select value={picked} onChange={(e) => setPicked(e.target.value)}>
+              <option value="">{owner ? "the connected wallet" : "— pick a client —"}</option>
+              {active.map((c) => (
+                <option key={c.token} value={c.token}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          {subject && (
+            <span className="mono dim">
+              {chosen ? `${chosen.name} · ` : "connected wallet · "}
+              {subject}
+            </span>
+          )}
+        </div>
+
+        {active.length === 0 && Array.isArray(clients) && (
+          <p className="note">
+            No client has signed a mandate yet, so there is no client capital to show. Add one on the
+            clients tab.
+          </p>
+        )}
+        {!subject && <p className="note">Connect a wallet, pick a client, or open with <code>?owner=0x…</code>.</p>}
+        {subject && (
           <div className="grid">
             {CHAINS.map((c) => (
-              <div className="stat" key={c.id}>
-                <div className="k">{c.name}</div>
-                <div className="v">{formatUnits(deployable.get(c.id) ?? 0n, 6)}</div>
-                <div className="n">
-                  {treasury.uncovered?.includes(c.id)
-                    ? "no control-plane audit trail on this chain"
-                    : "active allowance, 6dp"}
-                </div>
-              </div>
+              <ChainCapital
+                key={c.id}
+                chain={c}
+                owner={subject}
+                uncovered={Boolean(treasury && treasury.uncovered?.includes(c.id))}
+              />
             ))}
           </div>
         )}
@@ -362,7 +454,9 @@ export function StrategiesTab({ owner, refreshKey }: { owner?: `0x${string}`; re
                     </a>
                   </td>
                   <td className="mono">{short(c.token)}</td>
-                  <td>{formatUnits(deployable.get(c.id) ?? 0n, 6)}</td>
+                  <td>
+                    <Deployable chain={c} owner={subject} />
+                  </td>
                 </tr>
               ))}
             </tbody>

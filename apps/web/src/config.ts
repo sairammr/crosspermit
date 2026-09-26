@@ -1,4 +1,4 @@
-import type { Address } from "viem";
+import { type Address, getAddress } from "viem";
 
 /**
  * Deployed addresses and the chains this dashboard speaks to.
@@ -38,7 +38,7 @@ export const CHAINS: ChainInfo[] = [
     rpc: "https://optimism-sepolia-rpc.publicnode.com",
     explorer: "https://sepolia-optimism.etherscan.io",
     router: "0x2E03912851a0e442C77Ce00506aA7664E45560Ac",
-    token: "0x903321db019c620a9907e76e29927e0e7acc4764",
+    token: "0x903321dB019c620A9907E76e29927E0e7ACc4764",
   },
   {
     id: 11155111,
@@ -47,9 +47,28 @@ export const CHAINS: ChainInfo[] = [
     rpc: "https://ethereum-sepolia-rpc.publicnode.com",
     explorer: "https://sepolia.etherscan.io",
     router: "0x7B68d6740C5C66967271966E62fd1A3E01743E3c",
-    token: "0x496c39f509a1EC2b63cBE689e7fD52d56eE02c17",
+    token: "0x496C39F509a1ec2B63cBE689e7FD52D56Ee02C17",
   },
 ];
+
+/**
+ * Fail at import if any address above is not a valid EIP-55 checksum.
+ *
+ * viem rejects a mis-checksummed address, and the rejection surfaces as one chain quietly showing
+ * no data — which on a treasury screen reads as "this client has nothing here". A hand-typed
+ * address should break the build instead, which is what this does.
+ */
+for (const c of CHAINS) {
+  for (const [field, value] of [
+    ["crossPermit", CROSS_PERMIT],
+    ["router", c.router],
+    ["token", c.token],
+  ] as const) {
+    if (getAddress(value) !== value) {
+      throw new Error(`${c.name}: ${field} ${value} is not a valid checksummed address (expected ${getAddress(value)})`);
+    }
+  }
+}
 
 export const chainById = (id: number) => CHAINS.find((c) => c.id === id);
 

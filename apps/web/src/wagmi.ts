@@ -2,14 +2,25 @@
 
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
 import { createAppKit } from "@reown/appkit/react";
+import { http } from "viem";
 import { baseSepolia, optimismSepolia, sepolia } from "viem/chains";
 
 import { CHAINS, WC_PROJECT_ID } from "./config";
 
 const networks = [baseSepolia, optimismSepolia, sepolia] as const;
 
+/**
+ * The same endpoints the rest of this repository uses, rather than whichever default wagmi picks.
+ *
+ * Defaults are not uniformly reliable across these three testnets, and a read that fails renders as
+ * a number on a treasury screen. Naming the transports makes the reads agree with what `cast` sees
+ * from the same machine.
+ */
+const transports = Object.fromEntries(CHAINS.map((c) => [c.id, http(c.rpc)]));
+
 export const wagmiAdapter = new WagmiAdapter({
   networks: [...networks],
+  transports,
   projectId: WC_PROJECT_ID || "00000000000000000000000000000000",
   ssr: true,
 });
