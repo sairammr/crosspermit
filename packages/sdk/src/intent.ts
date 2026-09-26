@@ -37,10 +37,20 @@ export type Intent = {
   legs: Leg[];
 };
 
+/**
+ * The chain id the EIP-712 domain is pinned to on every deployment (EIP712.sol `CROSS_CHAIN_ID`).
+ *
+ * Exported because wallets enforce it: MetaMask rejects `eth_signTypedData_v4` outright when
+ * `domain.chainId` is not the chain it is currently on, so a caller has to put the wallet on this
+ * chain before asking for the signature. Nothing is ever broadcast there — it is a signing domain,
+ * not a network this product transacts on.
+ */
+export const SIGNING_CHAIN_ID = 1;
+
 /** EIP-712 domain and types, in one place. `chainId: 1` is pinned deliberately — see `signRoot`. */
 export const intentTypedData = (crossPermit: Address, message: Omit<Intent, "crossPermit" | "signature" | "legs">) =>
   ({
-    domain: { name: "CrossPermit", version: "1", chainId: 1, verifyingContract: crossPermit },
+    domain: { name: "CrossPermit", version: "1", chainId: SIGNING_CHAIN_ID, verifyingContract: crossPermit },
     types: {
       CrossPermit: [
         { name: "owner", type: "address" },

@@ -10,9 +10,11 @@ export type ClientMandate = {
   token: string;
   name: string;
   mandate: string;
-  /** Per-chain cap in the token's base units. A string, because it can exceed 2^53. */
+  /** Per-chain cap in the token's base units, "" until the client sets it. A string, because it can exceed 2^53. */
   capUnits: string;
+  /** Hours the allowance lives once signed; 0 until the client sets it. */
   ttlHours: number;
+  /** Chains the grant covers; empty until the client picks them. */
   chainIds: number[];
   owner: string | null;
   intentId: string | null;
@@ -47,12 +49,15 @@ export function useClients(refreshKey: number) {
   return clients;
 }
 
+/**
+ * Open a link for one client.
+ *
+ * The desk names the client and nothing else: which token, how much and for how long are the
+ * client's to choose on the page, and are written back by `linkMandate` when they sign.
+ */
 export async function createClient(input: {
   name: string;
-  mandate: string;
-  capUnits: string;
-  ttlHours: number;
-  chainIds: number[];
+  mandate?: string;
 }): Promise<{ ok: boolean; client?: ClientMandate; error?: string }> {
   const res = await fetch(`${RELAYER_URL}/v1/clients`, {
     method: "POST",
@@ -97,16 +102,22 @@ export function useMandate(token: string | undefined) {
   return { state, reload: load };
 }
 
-/** Bind the owner who signed. The relayer checks the intent is really theirs before it accepts. */
+/**
+ * Bind the owner who signed, and the terms they chose.
+ *
+ * The relayer checks the intent is really theirs before it accepts, and records the cap, expiry
+ * and chains from this call — so the desk's ledger shows what was granted, not what was asked for.
+ */
 export async function linkMandate(
   token: string,
   owner: string,
   intentId: string,
+  terms: { capUnits: string; ttlHours: number; chainIds: number[] },
 ): Promise<{ ok: boolean; error?: string }> {
   const res = await fetch(`${RELAYER_URL}/v1/clients/${token}/link`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ owner, intentId }),
+    body: JSON.stringify({ owner, intentId, ...terms }),
   });
   if (res.ok) return { ok: true };
   const body = (await res.json().catch(() => ({}))) as { error?: string };

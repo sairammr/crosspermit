@@ -1,0 +1,7 @@
+{
+  "chain": "BaseSepolia",
+  "address": "0xe666e3f76062d670a84b964ca4d9b456b1531c03",
+  "crossPermit": "0x659C6F027FC4F6b2fF7A18dF1e3C3ec78a99de1B",
+  "poolManager": "0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408",
+  "tx": "0xc38f548282b33190d81d52360df41197600d625e5cfaeb03b224ee14ee77cd9c"
+}

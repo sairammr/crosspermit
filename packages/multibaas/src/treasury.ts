@@ -191,6 +191,14 @@ export class Treasury {
     return per.flat();
   }
 
+  /** Every recorded act of authority for one owner, across every covered chain, newest first. */
+  async activityAllChains(owner: Address, limit = 300): Promise<ActivityRow[]> {
+    const per = await Promise.all(
+      [...this.byChain.entries()].map(([id, mb]) => activityOn(mb, id, owner, limit)),
+    );
+    return per.flat().sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
+  }
+
   /**
    * One signature, expanded into every on-chain record it produced.
    *
@@ -242,7 +250,10 @@ export class Treasury {
             { name: "amount", type: "input", alias: "amount", inputIndex: 3 },
             { name: "expiration", type: "input", alias: "expiration", inputIndex: 4 },
             { name: "timestamp", type: "input", alias: "signed_at", inputIndex: 5 },
-            { name: "triggered_at", type: "event_field", alias: "seen_at" },
+            // Event metadata cannot be selected. `type` accepts "input" and nothing else: every
+            // other value — "event_field", "field", "metadata", "block" — comes back as
+            // 400 "unable to parse JSON", which reads like a malformed body rather than one
+            // rejected enum. Verified against a live deployment; see docs/multibaas.md.
           ],
         },
       ],
@@ -288,3 +299,95 @@ function indexInputs(e: MultiBaasEvent): Record<string | number, unknown> {
 }
 
 const summarise = (e: MultiBaasEvent) => ({ name: e.event?.name ?? "unknown", values: indexInputs(e) });
+
+/**
+ * One client's whole history, as the control plane recorded it.
+ *
+ * The ledger above answers "what authority stands right now". This answers "what happened", which
+ * is the other half of what a risk committee asks and the only one that survives an allowance
+ * expiring: a grant that lapsed left no storage behind, but it did leave a row here.
+ *
+ * Fetched per contract rather than per event name, because MultiBaas's `eventName` filter is not
+ * exact — asking for one name returns others — so the name is decided here, after decoding, where
+ * the input arity can be checked against it.
+ */
+export async function activityOn(
+  mb: MultiBaas,
+  chainId: number,
+  owner: Address,
+  limit = 300,
+  label = "crosspermit",
+): Promise<ActivityRow[]> {
+  const events = await mb.listAllEvents({ contractLabel: label }, limit).catch(() => []);
+  const rows: ActivityRow[] = [];
+
+  for (const e of events) {
+    const name = e.event?.name ?? "";
+    const v = indexInputs(e);
+    const evOwner = String(v.owner ?? v[0] ?? "");
+    if (evOwner.toLowerCase() !== owner.toLowerCase()) continue;
+
+    const base = {
+      chainId,
+      name,
+      owner: evOwner as Address,
+      at: e.triggeredAt,
+      txHash: e.transaction?.txHash as Hex | undefined,
+      blockNumber: e.transaction?.blockNumber,
+    };
+
+    if (name === CROSSPERMIT_EVENTS.permit && (e.event?.inputs?.length ?? 0) === 6) {
+      const amount = BigInt(String(v.amount ?? v[3] ?? 0));
+      const expiration = Number(v.expiration ?? v[4] ?? 0);
+      rows.push({
+        ...base,
+        // A lock and a grant are the same event with a different expiration, and the difference is
+        // the whole risk story. Naming it here means no screen has to re-derive it.
+        kind: expiration === LOCKED_SENTINEL ? "locked" : amount === 0n ? "cleared" : "granted",
+        token: String(v.token ?? v[1] ?? "") as Address,
+        spender: String(v.spender ?? v[2] ?? "") as Address,
+        amount,
+        expiration,
+        timestamp: Number(v.timestamp ?? v[5] ?? 0),
+      });
+      continue;
+    }
+
+    if (name === CROSSPERMIT_EVENTS.lockdown && (e.event?.inputs?.length ?? 0) === 3) {
+      rows.push({
+        ...base,
+        kind: "locked",
+        token: String(v.token ?? v[1] ?? "") as Address,
+        spender: String(v.spender ?? v[2] ?? "") as Address,
+      });
+      continue;
+    }
+
+    if (name === CROSSPERMIT_EVENTS.nonceInvalidated && (e.event?.inputs?.length ?? 0) === 2) {
+      rows.push({ ...base, kind: "cancelled", salt: String(v.salt ?? v[1] ?? "") });
+    }
+  }
+
+  // Newest first by chain position. `triggeredAt` is a string clock we do not control; the block
+  // number is the one ordering the chain itself agrees with.
+  return rows.sort((a, b) => (b.blockNumber ?? 0) - (a.blockNumber ?? 0));
+}
+
+export type ActivityRow = {
+  chainId: number;
+  /** Decoded here so no screen re-derives "a lock is a Permit with expiration 2". */
+  kind: "granted" | "locked" | "cleared" | "cancelled";
+  name: string;
+  owner: Address;
+  token?: Address;
+  spender?: Address;
+  amount?: bigint;
+  expiration?: number;
+  /** The timestamp the owner signed, which is the ordering CrossPermit applies. */
+  timestamp?: number;
+  salt?: string;
+  /** When MultiBaas saw it. */
+  at?: string;
+  txHash?: Hex;
+  blockNumber?: number;
+};

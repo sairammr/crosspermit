@@ -12,12 +12,14 @@
 import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
+import Lenis from "lenis";
 import Link from "next/link";
 import { useRef, useState } from "react";
 
 import { CHAINS, CROSS_PERMIT } from "../src/config";
 import { PAPER } from "../src/dither";
-import { DitherArea, DitherBars, DitherWash, HorseMatrix } from "../src/dithergraph";
+import { DitherArea, DitherBars, DitherWash, DotText, HorseMatrix } from "../src/dithergraph";
+import { Machine } from "../src/machine";
 
 gsap.registerPlugin(useGSAP, ScrollTrigger);
 
@@ -27,6 +29,13 @@ const DOMAIN_SEPARATOR = "0x4ce820a58ffb00fe1b6cb52f083bdd1cfd176732c34db34a8451
 const APY_SERIES = [3.41, 3.52, 3.48, 3.71, 3.84, 3.79, 3.95, 4.02, 3.98, 4.11, 4.06, 4.19, 4.24, 4.06];
 /** Fee capture per chain per day, from the 0.3% pool the lifecycle swaps through. */
 const FEE_SERIES = [4, 7, 5, 9, 12, 8, 14, 11, 17, 15, 21, 19, 24, 22];
+
+const NAV = [
+  ["#how", "The cost"],
+  ["#chains", "One address"],
+  ["#flow", "Onboarding"],
+  ["#venues", "Allocation"],
+] as const;
 
 export default function Landing() {
   const root = useRef<HTMLDivElement>(null);
@@ -38,12 +47,38 @@ export default function Landing() {
     () => {
       const mm = gsap.matchMedia();
 
-      // The rail only earns its background once the hero is behind it.
-      ScrollTrigger.create({
-        start: "top -80",
-        end: 99999,
-        onToggle: (self) => root.current?.querySelector(".rail")?.classList.toggle("stuck", self.isActive),
-      });
+      // --- the rail arrives once the hero is behind you ------------------------
+      // Hidden over the hero so the machine and the headline have the screen to themselves; the
+      // hero carries its own mark meanwhile, so the page is never anonymous.
+      const rail = root.current?.querySelector(".rail");
+      if (rail) {
+        gsap.set(rail, { yPercent: -100 });
+        ScrollTrigger.create({
+          start: () => `top -${window.innerHeight * 0.55}`,
+          end: 99999,
+          invalidateOnRefresh: true,
+          onToggle: (self) =>
+            gsap.to(rail, {
+              yPercent: self.isActive ? 0 : -100,
+              duration: 0.45,
+              ease: "power3.out",
+            }),
+        });
+      }
+
+      // Which section the reader is actually in. Marked on the rail rather than left to the URL,
+      // because nothing here changes the hash.
+      const links = gsap.utils.toArray<HTMLAnchorElement>(".rail-nav a");
+      for (const link of links) {
+        const target = root.current?.querySelector(link.getAttribute("href") ?? "");
+        if (!target) continue;
+        ScrollTrigger.create({
+          trigger: target,
+          start: "top 40%",
+          end: "bottom 40%",
+          onToggle: (self) => link.setAttribute("data-current", String(self.isActive)),
+        });
+      }
 
       // Charts are scrubbed rather than played: a reader who scrolls back up should see the series
       // retreat, not sit finished. Rounded before it reaches React so a scroll costs ~50 renders,
@@ -59,35 +94,51 @@ export default function Landing() {
       scrub(".fee-chart", setFeeProgress);
 
       mm.add("(prefers-reduced-motion: reduce)", () => {
-        gsap.set(".cpu-enter", { opacity: 1 });
-        gsap.set(".cpu-clean", { opacity: 1 });
-        gsap.set(".cpu-screen", { opacity: 1 });
+        gsap.set(".cpu-enter", { opacity: 1, clearProps: "filter" });
         gsap.set(".reveal", { opacity: 1, y: 0 });
         setApyProgress(1);
         setFeeProgress(1);
       });
 
       mm.add("(prefers-reduced-motion: no-preference)", () => {
+        // --- the page scrolls on rails ----------------------------------------------
+        // (torn down with the matchMedia context, below)
+        // Lenis smooths the wheel; ScrollTrigger reads its position rather than the raw one, and
+        // GSAP's ticker drives it so there is one clock, not two.
+        const lenis = new Lenis({ lerp: 0.09, wheelMultiplier: 0.9 });
+        lenis.on("scroll", ScrollTrigger.update);
+        const tick = (t: number) => lenis.raf(t * 1000);
+        gsap.ticker.add(tick);
+        gsap.ticker.lagSmoothing(0);
+
         // --- the machine arrives -------------------------------------------------
-        // Slow, then a single bounce, then it resolves from halftone into the render. Three nested
-        // wrappers because the entrance, the idle bob and the scroll parallax all drive `y`, and
-        // one element cannot hold three owners of the same property.
+        // Slow in, a single bounce, and then it turns a few degrees on its own: the drift is the
+        // affordance, and it retires the moment somebody takes hold of it.
         const tl = gsap.timeline();
         tl.fromTo(
           ".cpu-enter",
-          { opacity: 0, scale: 0.84, y: 90, filter: "blur(6px)" },
-          { opacity: 1, scale: 1, y: 0, filter: "blur(0px)", duration: 2.1, ease: "power3.out" },
+          { opacity: 0, scale: 0.82, y: 86, filter: "blur(7px)" },
+          {
+            opacity: 1,
+            scale: 1,
+            y: 0,
+            filter: "blur(0px)",
+            duration: 2.2,
+            ease: "power3.out",
+          },
         )
-          .to(".cpu-enter", { y: -26, duration: 0.42, ease: "power2.out" }, "-=0.45")
-          .to(".cpu-enter", { y: 0, duration: 1.1, ease: "elastic.out(1, 0.42)" })
-          .to(".cpu-clean", { opacity: 1, duration: 1.6, ease: "none" }, "-=1.5")
-          .to(".cpu-screen", { opacity: 1, duration: 0.5 }, "-=0.7")
-          .from(".hero h1 > span", { yPercent: 115, opacity: 0, duration: 0.9, stagger: 0.09, ease: "power3.out" }, 0.15)
-          .from(".hero-lede, .hero-cta, .hero-foot", { opacity: 0, y: 16, duration: 0.7, stagger: 0.1 }, 0.9);
+          .to(".cpu-enter", { y: -24, duration: 0.42, ease: "power2.out" }, "-=0.5")
+          .to(".cpu-enter", {
+            y: 0,
+            duration: 1.15,
+            ease: "elastic.out(1, 0.42)",
+          })
+          .from(".hero-word", { opacity: 0, y: 18, duration: 1.1, ease: "power3.out" }, 0.9)
+          .from(".hero-foot, .hero-brand, .cpu-hint", { opacity: 0, y: 14, duration: 0.7, stagger: 0.12 }, 1.2);
 
         gsap.to(".cpu-float", {
-          y: 14,
-          duration: 3.6,
+          y: 10,
+          duration: 4.2,
           ease: "sine.inOut",
           repeat: -1,
           yoyo: true,
@@ -99,12 +150,22 @@ export default function Landing() {
           y: -150,
           scale: 0.92,
           ease: "none",
-          scrollTrigger: { trigger: ".hero", start: "top top", end: "bottom top", scrub: 0.4 },
+          scrollTrigger: {
+            trigger: ".hero",
+            start: "top top",
+            end: "bottom top",
+            scrub: 0.4,
+          },
         });
         gsap.to(".hero-bg img", {
           yPercent: 12,
           ease: "none",
-          scrollTrigger: { trigger: ".hero", start: "top top", end: "bottom top", scrub: 0.4 },
+          scrollTrigger: {
+            trigger: ".hero",
+            start: "top top",
+            end: "bottom top",
+            scrub: 0.4,
+          },
         });
 
         // --- everything else arrives on approach ---------------------------------
@@ -114,7 +175,14 @@ export default function Landing() {
         ScrollTrigger.batch(".reveal", {
           start: "top 88%",
           onEnter: (els) =>
-            gsap.to(els, { opacity: 1, y: 0, duration: 0.8, stagger: 0.09, ease: "power3.out", overwrite: true }),
+            gsap.to(els, {
+              opacity: 1,
+              y: 0,
+              duration: 0.8,
+              stagger: 0.09,
+              ease: "power3.out",
+              overwrite: true,
+            }),
           onLeaveBack: (els) => gsap.to(els, { opacity: 0, y: 28, duration: 0.3, overwrite: true }),
         });
 
@@ -148,6 +216,10 @@ export default function Landing() {
             });
           });
         }
+        return () => {
+          gsap.ticker.remove(tick);
+          lenis.destroy();
+        };
       });
     },
     { scope: root },
@@ -157,85 +229,68 @@ export default function Landing() {
     <div className="lp" ref={root}>
       <header className="rail">
         <div className="rail-in">
-          <div className="brandmark">
+          <a className="brandmark" href="#top" style={{ textDecoration: "none" }}>
             <HorseMatrix cols={13} size={22} />
             CrossPermit<span style={{ color: "var(--accent)" }}>.</span>
-          </div>
+          </a>
+          <nav className="rail-nav" aria-label="Sections">
+            {NAV.map(([href, label]) => (
+              <a key={href} href={href}>
+                {label}
+              </a>
+            ))}
+          </nav>
           <Link className="btn btn-action" href="/app">
-            Enter the desk
+            <span className="cap">
+              Enter the desk
+            </span>
           </Link>
         </div>
       </header>
 
       {/* ----------------------------------------------------------- hero */}
-      <section className="hero">
+      <section className="hero" id="top">
         <div className="hero-bg">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/moss.jpg" alt="" />
-        </div>
-        <div className="hero-grain">
+          <img src="/hillside.webp" alt="" fetchPriority="high" />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img className="hero-moss" src="/moss.jpg" alt="" />
+          {/* The band has to start out of nothing. A paper-coloured wash dense at the top edge
+              dissolves the photograph into the page grain instead of ending it on a horizon line. */}
           <DitherWash from="top" color={PAPER} strength={1} />
         </div>
 
-        <div className="hero-in">
-          <div style={{ display: "grid", gap: 28 }}>
-            <h1>
-              <span style={{ display: "block", overflow: "hidden" }}>
-                <span style={{ display: "block" }}>Run a fund</span>
-              </span>
-              <span style={{ display: "block", overflow: "hidden" }}>
-                <span style={{ display: "block" }}>
-                  across <u>every chain</u>.
-                </span>
-              </span>
-              <span style={{ display: "block", overflow: "hidden" }}>
-                <span style={{ display: "block" }}>
-                  Your clients sign once<b>.</b>
-                </span>
-              </span>
-            </h1>
-            <p className="lede hero-lede">
-              Add a client, send them a link, and one signature gives your desk a bounded, revocable
-              mandate on every chain you trade. Then allocate it — Uniswap v4, Aave v4, tokenized
-              equities — without asking them again.
-            </p>
-            <div className="hero-cta" style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-              <Link className="btn btn-action" href="/app">
-                Open the desk
-              </Link>
-              <a className="btn btn-ghost" href="#how">
-                How it works
-              </a>
-            </div>
-          </div>
+        {/* The rail is not here yet, so the hero signs its own name. */}
+        <div className="hero-brand">
+          <HorseMatrix cols={13} size={22} />
+          CrossPermit<span style={{ color: "var(--accent)" }}>.</span>
+        </div>
 
+        <div className="hero-in">
+          <div className="hero-word" aria-hidden="true">
+            <DotText text="CrossPermit." size={64} />
+          </div>
           <div className="cpu-scroll">
             <div className="cpu-enter">
               <div className="cpu-float">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src="/apple2-dither.png" alt="" />
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img className="cpu-clean" src="/apple2.png" alt="An Apple II with two disk drives" />
-                <div className="cpu-screen" aria-hidden="true">
-                  ]CROSSPERMIT V1
-                  <br />
-                  ]LOAD MANDATE
-                  <br />
-                  &nbsp;OWNER&nbsp;&nbsp;0x9A3…C4
-                  <br />
-                  &nbsp;CHAINS&nbsp;&nbsp;3
-                  <br />
-                  &nbsp;ROOT&nbsp;&nbsp;&nbsp;&nbsp;0x4CE8…A5E4
-                  <br />
-                  ]SIGN
-                  <br />
-                  &nbsp;<i>OK — 3 CHAINS ARMED</i>
-                  <br />]<span className="cursor" />
-                </div>
+                <Machine />
+                <span className="cpu-hint">Drag to turn</span>
               </div>
             </div>
           </div>
         </div>
+
+        {/* Cloud banks in front of everything, so the machine stands in weather rather than on a backdrop. */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img className="hero-cloud l" src="/cloud.webp" alt="" aria-hidden="true" />
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img className="hero-cloud l2" src="/cloud-2.webp" alt="" aria-hidden="true" />
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img className="hero-cloud r" src="/cloud-2.webp" alt="" aria-hidden="true" />
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img className="hero-cloud r2" src="/cloud.webp" alt="" aria-hidden="true" />
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img className="hero-cloud c" src="/cloud-2.webp" alt="" aria-hidden="true" />
 
         <div className="hero-foot">
           <div className="cue">
@@ -246,6 +301,95 @@ export default function Landing() {
             {CROSS_PERMIT}
             <br />
             one address · {CHAINS.length} chains · one signature
+          </div>
+        </div>
+      </section>
+
+      {/* ----------------------------------------------------------- institutional */}
+      <section className="sec inst" id="desk">
+        <div className="wrapx">
+          <div className="inst-grid">
+            <div>
+              <div className="sec-head reveal">
+                <span className="label">00 / For the desk that runs other people&apos;s money</span>
+                <h2>
+                  One mandate.
+                  <br />
+                  Every venue the fund trades.
+                </h2>
+                {/* The claim at full strength, stated here and only here. Every section after this one
+                    is evidence for it rather than another telling of it. */}
+                <p className="lede">
+                  The client signs one EIP-712 message. That arms a capped, dated, revocable trading mandate on every
+                  chain the desk operates on. Custody never moves.
+                </p>
+              </div>
+
+              <div className="bento">
+                <div className="card-dark reveal">
+                  <span className="label" style={{ color: "#a7a49e" }}>
+                    Signatures per mandate
+                  </span>
+                  <div className="big">
+                    <DotText text="1." size={54} />
+                  </div>
+                  <div className="dotbars" aria-label="Mandate size armed per hour across three chains">
+                    {[3, 5, 4, 7, 6, 9, 8, 12, 10, 14, 13, 17, 16, 21, 19, 24, 22, 26, 25, 29, 27, 31, 30, 34].map(
+                      (n, i) => (
+                        <i key={i}>
+                          {Array.from({ length: n }, (_, k) => (
+                            <b key={k} />
+                          ))}
+                        </i>
+                      ),
+                    )}
+                  </div>
+                  <span
+                    className="micro"
+                    style={{
+                      color: "#8f8c86",
+                      marginTop: 14,
+                      display: "block",
+                    }}
+                  >
+                    armed per hour · {CHAINS.length} chains · testnet
+                  </span>
+                </div>
+
+                <div className="card-impact reveal">
+                  <div className="head">
+                    <h3>
+                      Custody<span style={{ color: "var(--accent)" }}>.</span>
+                    </h3>
+                    <div className="sq" aria-hidden="true">
+                      <HorseMatrix cols={14} size={64} tone="light" />
+                    </div>
+                  </div>
+                  <div className="body">
+                    <div className="col">
+                      <div className="hatch" />
+                      <div className="fill">
+                        <span className="n">{CHAINS.length}</span>
+                        <span className="u">ch</span>
+                      </div>
+                    </div>
+                    <div className="pane">
+                      <div className="client">
+                        <span>←</span>
+                        <span>client: MERIDIAN</span>
+                        <span>→</span>
+                      </div>
+                      <h4>Mandate armed</h4>
+                      <p>The capital stays in the client&apos;s own wallet the whole time.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="inst-horse reveal" aria-hidden="true">
+              <HorseMatrix cols={36} size={560} />
+            </div>
           </div>
         </div>
       </section>
@@ -263,60 +407,94 @@ export default function Landing() {
           </div>
 
           <div className="grid g3">
-            <div className="mod reveal">
-              <span className="label">Approval surface</span>
-              <div className="figure" style={{ marginTop: 12 }}>
-                4×
+            <div className="mod statcard reveal">
+              <span className="label">Wallet sessions to onboard one client</span>
+              <div className="figure">
+                <DotText text="4X" size={30} />
               </div>
-              <p className="lede" style={{ fontSize: 15, marginTop: 12 }}>
-                Every chain is its own wallet session, its own approval, its own line in the audit
-                log — and its own opportunity to sign the wrong spender.
+              <p className="lede">Four approvals, four audit lines, four chances to sign the wrong spender.</p>
+            </div>
+            <div className="mod statcard reveal">
+              <span className="label">Transactions to close the exposure</span>
+              <div className="figure">
+                <DotText text="4X" size={30} />
+              </div>
+              <p className="lede">
+                A counterparty goes bad and the desk is queuing in four gas markets while it does.
               </p>
             </div>
-            <div className="mod reveal">
-              <span className="label">Revocation</span>
-              <div className="figure" style={{ marginTop: 12 }}>
-                4×
+            <div className="mod statcard hot reveal">
+              <span className="label">With CrossPermit, either way</span>
+              <div className="figure">
+                <DotText text="1X" size={30} />
               </div>
-              <p className="lede" style={{ fontSize: 15, marginTop: 12 }}>
-                A compromised counterparty means four transactions, in four gas markets, before the
-                exposure is actually closed.
-              </p>
+              <p className="lede">One message to grant. One to revoke. Neither waits on a second chain.</p>
             </div>
-            <div className="mod reveal" style={{ background: "var(--accent)", borderColor: "var(--accent)" }}>
-              <span className="label" style={{ color: "#16120f", opacity: 0.7 }}>
-                With CrossPermit
+          </div>
+        </div>
+      </section>
+
+      {/* ----------------------------------------------------------- the ledger band */}
+      {/* The three counts a desk actually gets billed for, quoted in dot type and set in Geist so the
+          band reads as instrumentation rather than as a second pitch. It used to carry a full restatement
+          of section 00 underneath; the page only needs that claim once, so the slab is gone and the
+          numbers stand on their own. */}
+      <section className="sec sim" id="sim">
+        <div className="wrapx">
+          <div className="dotstrip reveal">
+            <div className="cell">
+              <span className="mark">
+                <HorseMatrix cols={9} size={16} />
+                CrossPermit
               </span>
-              <div className="figure" style={{ marginTop: 12, color: "#16120f" }}>
-                1×
-              </div>
-              <p className="lede" style={{ fontSize: 15, marginTop: 12, color: "#16120f" }}>
-                One EIP-712 message over a merkle root of per-chain bundles. Grant everywhere at
-                once. Revoke everywhere at once.
-              </p>
+              <DotText text="1X" size={30} />
+              <span className="cap">Times the client is ever asked to sign</span>
+            </div>
+            <div className="cell">
+              <span className="mark">EIP-712 · merkle root</span>
+              <DotText text="3" size={30} />
+              <span className="cap">Chains that message covers</span>
+            </div>
+            <div className="cell">
+              <span className="mark">Universal Router</span>
+              <DotText text="0" size={30} />
+              <span className="cap">ERC-20 approvals the router holds</span>
+            </div>
+            <div className="cell cta">
+              <p>Onboarding is a link and a signature. The desk is trading the same afternoon.</p>
+              <Link className="btn btn-sm" href="/app">
+                <span className="cap">
+                  Sign up
+                </span>
+              </Link>
             </div>
           </div>
         </div>
       </section>
 
       {/* ----------------------------------------------------------- fan-out */}
-      <section className="sec">
+      <section className="sec" id="chains">
         <div className="wrapx">
           <div className="sec-head reveal">
-            <span className="label">02 / One signature, three chains</span>
+            <span className="label">02 / Why the signature travels</span>
             <h2>The same contract, at the same address, everywhere.</h2>
             <p className="lede">
-              Deployed through the ERC-2470 singleton factory, so identical init code and an
-              identical salt give an identical address. That is what makes a signature portable: the
-              EIP-712 domain pins <span className="mono">chainId = 1</span> but still names the
-              verifying contract.
+              The ERC-2470 singleton factory: identical init code, identical salt, identical address. That is what makes
+              a signature portable — the EIP-712 domain pins <span className="mono">chainId = 1</span> and still names
+              the verifying contract.
             </p>
           </div>
 
           <div className="grid g3" style={{ marginBottom: 16 }}>
             {CHAINS.map((c) => (
               <div className="chain reveal" key={c.id}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                  }}
+                >
                   <h3>{c.name}</h3>
                   <span className="badge badge-out">{c.id}</span>
                 </div>
@@ -350,17 +528,16 @@ export default function Landing() {
                 <span>8 stages · 72 checks · 0 failed</span>
               </div>
             </div>
-            <p className="lede" style={{ fontSize: 14, marginTop: 20, color: "#c9c6c1" }}>
-              Optimism Sepolia was added after the fact. The same init code and the same salt put
-              CrossPermit at the same address on a chain it had never touched, and its domain
-              separator came back identical without any coordination.
+            <p className="lede" style={{ marginTop: 20, color: "#c9c6c1" }}>
+              Optimism Sepolia was added after the fact — a chain CrossPermit had never touched. It landed at the same
+              address and returned the same domain separator, with no coordination at all.
             </p>
           </div>
         </div>
       </section>
 
       {/* ----------------------------------------------------------- the surf */}
-      <section className="surf">
+      <section className="surf" id="flow">
         <div className="surf-in">
           <div className="surf-head">
             <span className="label">03 / From cold contact to allocated capital</span>
@@ -370,10 +547,7 @@ export default function Landing() {
             <article className="step">
               <div className="n">01</div>
               <h3>Add the client</h3>
-              <p>
-                Name, mandate size, expiry, and which chains the desk is allowed to operate on. No
-                wallet needed yet — nothing has been asked of them.
-              </p>
+              <p>Name, mandate size, expiry, chains. Nothing has been asked of the client yet.</p>
               <div className="wire">
                 <span>CLIENT</span>
                 <b>Meridian Capital · USDC · 3 chains</b>
@@ -386,8 +560,8 @@ export default function Landing() {
               <div className="n">02</div>
               <h3>Send the link</h3>
               <p>
-                The desk generates a one-client invitation. It carries the mandate, not a request for
-                keys, and it can be revoked before it is ever opened.
+                A one-client invitation carrying the mandate, not a request for keys. Revocable before it is ever
+                opened.
               </p>
               <div className="wire">
                 <span>INVITATION</span>
@@ -401,8 +575,8 @@ export default function Landing() {
               <div className="n">03</div>
               <h3>They sign once</h3>
               <p>
-                Their wallet opens on a page that has already rendered every per-chain bundle in
-                plain language. One signature arms the whole mandate.
+                Their wallet opens on a page that has already rendered every per-chain bundle in plain language. They
+                read it before they sign it.
               </p>
               <div className="wire">
                 <span>SIGNED</span>
@@ -416,8 +590,8 @@ export default function Landing() {
               <div className="n">04</div>
               <h3>You allocate</h3>
               <p>
-                Their capital shows up on the desk with its bounds attached. Route it into a Uniswap
-                v4 pool, an Aave v4 spoke, or a tokenized equity — inside the mandate, never past it.
+                The capital arrives on the desk with its bounds attached. Uniswap v4, Aave v4, tokenized equity —
+                inside the mandate, never past it.
               </p>
               <div className="wire">
                 <span>DESK</span>
@@ -431,7 +605,7 @@ export default function Landing() {
       </section>
 
       {/* ----------------------------------------------------------- strategies */}
-      <section className="sec">
+      <section className="sec" id="venues">
         <div className="wrapx">
           <div className="sec-head reveal">
             <span className="label">04 / What the desk can do with it</span>
@@ -440,7 +614,13 @@ export default function Landing() {
 
           <div className="grid g2">
             <div className="mod reveal apy-chart">
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "baseline",
+                }}
+              >
                 <div>
                   <span className="label">Aave v4 · Core Hub / MAIN Spoke</span>
                   <h3 style={{ marginTop: 8 }}>Supply APY</h3>
@@ -471,7 +651,13 @@ export default function Landing() {
             </div>
 
             <div className="mod reveal fee-chart">
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "baseline",
+                }}
+              >
                 <div>
                   <span className="label">Uniswap v4 · PoolManager</span>
                   <h3 style={{ marginTop: 8 }}>Fee capture</h3>
@@ -479,7 +665,12 @@ export default function Landing() {
                 <span className="badge badge-live">live testnets</span>
               </div>
               <div className="chartbox tall">
-                <DitherBars values={FEE_SERIES} variant="solid" hotIndex={FEE_SERIES.length - 1} progress={feeProgress} />
+                <DitherBars
+                  values={FEE_SERIES}
+                  variant="solid"
+                  hotIndex={FEE_SERIES.length - 1}
+                  progress={feeProgress}
+                />
               </div>
               <div style={{ marginTop: 16, display: "grid", gap: 2 }}>
                 <div className="kv">
@@ -507,24 +698,24 @@ export default function Landing() {
               <span className="label">Liquidity</span>
               <h3>Uniswap v4 pools</h3>
               <div className="row">
-                <span className="n up">3</span>
+                <span className="n up">
+                  <DotText text="3" size={24} />
+                </span>
                 <span className="micro">seeded pools, one per chain</span>
               </div>
-              <p className="lede" style={{ fontSize: 14 }}>
-                A real PoolManager on each chain, paid out of the client&rsquo;s allowance on the same
-                path any dApp uses.
-              </p>
+              <p className="lede">A real PoolManager per chain, paid out of the mandate on the path any dApp uses.</p>
             </div>
             <div className="strat reveal">
               <span className="label">Yield</span>
               <h3>Aave v4 spokes</h3>
               <div className="row">
-                <span className="n up">4.06%</span>
+                <span className="n up">
+                  <DotText text="4.06%" size={24} />
+                </span>
                 <span className="micro">APY, MAIN spoke</span>
               </div>
-              <p className="lede" style={{ fontSize: 14 }}>
-                Hub-and-spoke: utilisation is read at the Hub, where the liquidity actually sits, not
-                at the market.
+              <p className="lede">
+                Hub-and-spoke: utilisation is read at the Hub, where the liquidity sits, not at the market.
               </p>
             </div>
             <div className="strat reveal">
@@ -534,9 +725,8 @@ export default function Landing() {
                 <span className="n">NVDAon</span>
                 <span className="micro">Ondo, read live</span>
               </div>
-              <p className="lede" style={{ fontSize: 14 }}>
-                Every fill bounded three ways: the caller&rsquo;s minimum out, an oracle staleness
-                window, and a deviation band.
+              <p className="lede">
+                Every fill bounded three ways: minimum out, oracle staleness window, deviation band.
               </p>
             </div>
           </div>
@@ -552,14 +742,17 @@ export default function Landing() {
           </div>
           <div className="grid g4">
             {[
-              ["Bounded", "The amount, the spender and the expiry all live inside the message they signed. Nothing can raise them after the fact."],
-              ["Revocable", "One signature LOCKs the desk on every chain at once — proved by a spend that then reverts, not by a flag."],
-              ["Non-custodial", "The relayer pays gas and nothing else. It cannot change a recipient, an amount, or a spender."],
-              ["Audited", "Every grant, spend and revocation lands in the control-plane event ledger, alongside the chain itself."],
+              [
+                "Bounded",
+                "Amount, spender and expiry live inside the message they signed. Nothing can raise them afterwards.",
+              ],
+              ["Revocable", "One signature LOCKs the desk everywhere — proved by a spend that reverts, not by a flag."],
+              ["Non-custodial", "The relayer pays gas and nothing else. It cannot change recipient, amount or spender."],
+              ["Audited", "Every grant, spend and revocation lands in the control-plane event ledger."],
             ].map(([title, body]) => (
               <div className="mod-flat reveal" key={title}>
                 <h3>{title}</h3>
-                <p className="lede" style={{ fontSize: 14, marginTop: 10 }}>
+                <p className="lede" style={{ marginTop: 10 }}>
                   {body}
                 </p>
               </div>
@@ -573,13 +766,19 @@ export default function Landing() {
         <div className="wrapx" style={{ display: "grid", justifyItems: "center", gap: 24 }}>
           <HorseMatrix cols={20} size={150} />
           <h2 style={{ maxWidth: "14ch" }}>Open the desk.</h2>
-          <p className="lede" style={{ textAlign: "center" }}>
-            Three testnets are live now. Add a client, send the link, and watch one signature arm
-            every chain you trade.
-          </p>
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", justifyContent: "center" }}>
+          <p className="lede">Three testnets are live now. Add a client and send the link.</p>
+          <div
+            style={{
+              display: "flex",
+              gap: 12,
+              flexWrap: "wrap",
+              justifyContent: "center",
+            }}
+          >
             <Link className="btn btn-action" href="/app">
-              Enter the desk
+              <span className="cap">
+                Enter the desk
+              </span>
             </Link>
             <a
               className="btn btn-ghost"
@@ -587,7 +786,9 @@ export default function Landing() {
               target="_blank"
               rel="noreferrer"
             >
-              Read the code
+              <span className="cap">
+                Read the code
+              </span>
             </a>
           </div>
         </div>
@@ -595,7 +796,7 @@ export default function Landing() {
 
       <div className="wrapx">
         <footer className="foot">
-          <span className="micro">CrossPermit · one signature, every chain</span>
+          <span className="micro">CrossPermit · {CROSS_PERMIT}</span>
           <span className="micro">Testnet only. Never fund these addresses with mainnet value.</span>
         </footer>
       </div>

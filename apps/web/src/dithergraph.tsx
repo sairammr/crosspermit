@@ -69,6 +69,7 @@ export function DitherArea({
   color = INK,
   progress = 1,
   baseline = 0,
+  bow = 0,
 }: {
   values: number[];
   variant?: Variant;
@@ -78,6 +79,15 @@ export function DitherArea({
   progress?: number;
   /** Fraction of the height left empty under the series. */
   baseline?: number;
+  /**
+   * Barrel curvature, as a fraction of the canvas height.
+   *
+   * The chart that sits on the Apple II's CRT has to look like it is painted on curved glass, and a
+   * CSS transform on a flat rectangle never does — the corners give it away. Bending the artwork
+   * itself is both cheaper and more convincing: the middle of every row lifts, exactly as a phosphor
+   * raster does on a tube.
+   */
+  bow?: number;
 }) {
   const ref = useDitherCanvas((img, w, h) => {
     if (values.length < 2) return;
@@ -97,14 +107,19 @@ export function DitherArea({
       return (v - min) / span;
     };
 
+    // How far this column lifts. Zero at both edges, maximum in the middle.
+    const lift = (nx: number) => bow * h * (1 - 4 * (nx - 0.5) ** 2);
+
     const fill = variantDensity(variant);
     const density: Density = (nx, ny) => {
       if (nx > reveal) return 0;
-      const y = floor - (floor - top) * at(nx);
+      const b = lift(nx);
+      const y = floor - (floor - top) * at(nx) - b;
+      const base = floor - b;
       const py = ny * h;
-      if (py < y) return 0;
+      if (py < y || py > base) return 0;
       // Renormalise ny inside the filled band so a gradient ramps over the band, not the canvas.
-      return fill(nx, (py - y) / Math.max(1, floor - y));
+      return fill(nx, (py - y) / Math.max(1, base - y));
     };
     paintDither(img, 0, 0, w, h, density, color);
 
@@ -118,7 +133,7 @@ export function DitherArea({
       h,
       (nx, ny) => {
         if (nx > reveal) return 0;
-        const y = floor - (floor - top) * at(nx);
+        const y = floor - (floor - top) * at(nx) - lift(nx);
         return Math.abs(ny * h - y) < lw ? 1 : 0;
       },
       color,
@@ -134,7 +149,7 @@ export function DitherArea({
         h,
         (nx, ny) => {
           if (nx > reveal) return 0;
-          const y = floor - (floor - top) * at(nx);
+          const y = floor - (floor - top) * at(nx) - lift(nx);
           const d = y - ny * h;
           return d > 0 && d < h * 0.22 ? halo * (1 - d / (h * 0.22)) : 0;
         },
@@ -267,6 +282,117 @@ export function HorseMatrix({
           fill={eye && c === eye[0] && r === eye[1] ? "var(--accent)" : fill}
         />
       ))}
+    </svg>
+  );
+}
+
+/* ---------- dot-matrix type ---------- */
+
+/**
+ * 5×7 cells, the way a display of the period would set them. The full uppercase alphabet, the
+ * digits and the punctuation a headline needs, so a section title can be set in dots without
+ * first checking whether its letters exist — a missing key renders as a hole, not an error.
+ */
+const DOT_GLYPHS: Record<string, string[]> = {
+  A: [".###.", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"],
+  B: ["####.", "#...#", "#...#", "####.", "#...#", "#...#", "####."],
+  C: [".###.", "#...#", "#....", "#....", "#....", "#...#", ".###."],
+  D: ["####.", "#...#", "#...#", "#...#", "#...#", "#...#", "####."],
+  F: ["#####", "#....", "#....", "####.", "#....", "#....", "#...."],
+  G: [".###.", "#...#", "#....", "#.###", "#...#", "#...#", ".###."],
+  H: ["#...#", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"],
+  J: ["..###", "...#.", "...#.", "...#.", "...#.", "#..#.", ".##.."],
+  K: ["#...#", "#..#.", "#.#..", "##...", "#.#..", "#..#.", "#...#"],
+  L: ["#....", "#....", "#....", "#....", "#....", "#....", "#####"],
+  N: ["#...#", "##..#", "##..#", "#.#.#", "#..##", "#..##", "#...#"],
+  Q: [".###.", "#...#", "#...#", "#...#", "#.#.#", "#..#.", ".##.#"],
+  U: ["#...#", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."],
+  V: ["#...#", "#...#", "#...#", "#...#", "#...#", ".#.#.", "..#.."],
+  W: ["#...#", "#...#", "#...#", "#.#.#", "#.#.#", "##.##", "#...#"],
+  Y: ["#...#", "#...#", ".#.#.", "..#..", "..#..", "..#..", "..#.."],
+  Z: ["#####", "....#", "...#.", "..#..", ".#...", "#....", "#####"],
+  R: ["####.", "#...#", "#...#", "####.", "#.#..", "#..#.", "#...#"],
+  O: [".###.", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."],
+  S: [".####", "#....", "#....", ".###.", "....#", "....#", "####."],
+  P: ["####.", "#...#", "#...#", "####.", "#....", "#....", "#...."],
+  E: ["#####", "#....", "#....", "####.", "#....", "#....", "#####"],
+  M: ["#...#", "##.##", "#.#.#", "#.#.#", "#...#", "#...#", "#...#"],
+  I: ["#####", "..#..", "..#..", "..#..", "..#..", "..#..", "#####"],
+  T: ["#####", "..#..", "..#..", "..#..", "..#..", "..#..", "..#.."],
+  "0": [".###.", "#...#", "#..##", "#.#.#", "##..#", "#...#", ".###."],
+  "1": ["..#..", ".##..", "..#..", "..#..", "..#..", "..#..", ".###."],
+  "2": [".###.", "#...#", "....#", "...#.", "..#..", ".#...", "#####"],
+  "3": ["#####", "...#.", "..#..", "...#.", "....#", "#...#", ".###."],
+  "4": ["...#.", "..##.", ".#.#.", "#..#.", "#####", "...#.", "...#."],
+  "5": ["#####", "#....", "####.", "....#", "....#", "#...#", ".###."],
+  "6": ["..##.", ".#...", "#....", "####.", "#...#", "#...#", ".###."],
+  "7": ["#####", "....#", "...#.", "..#..", ".#...", ".#...", ".#..."],
+  "8": [".###.", "#...#", "#...#", ".###.", "#...#", "#...#", ".###."],
+  "9": [".###.", "#...#", "#...#", ".####", "....#", "...#.", ".##.."],
+  X: ["#...#", "#...#", ".#.#.", "..#..", ".#.#.", "#...#", "#...#"],
+  "%": ["##..#", "##..#", "...#.", "..#..", ".#...", "#..##", "#..##"],
+  ".": [".....", ".....", ".....", ".....", ".....", ".....", "..#.."],
+  " ": [".....", ".....", ".....", ".....", ".....", ".....", "....."],
+  // Punctuation sits low and centred, as a display sets it: the comma hangs a row below the
+  // full stop, the hyphen is one mid row, the colon is two dots on the same column.
+  ",": [".....", ".....", ".....", ".....", ".....", "..#..", ".#..."],
+  "-": [".....", ".....", ".....", ".###.", ".....", ".....", "....."],
+  "/": ["....#", "...#.", "...#.", "..#..", ".#...", ".#...", "#...."],
+  ":": [".....", ".....", "..#..", ".....", ".....", "..#..", "....."],
+  "'": ["..#..", "..#..", ".....", ".....", ".....", ".....", "....."],
+  "&": [".##..", "#..#.", "#..#.", ".##..", "#.#.#", "#..#.", ".##.#"],
+  "?": [".###.", "#...#", "....#", "...#.", "..#..", ".....", "..#.."],
+  "!": ["..#..", "..#..", "..#..", "..#..", "..#..", ".....", "..#.."],
+  "+": [".....", ".....", "..#..", ".###.", "..#..", ".....", "....."],
+  "(": ["...#.", "..#..", ".#...", ".#...", ".#...", "..#..", "...#."],
+  ")": [".#...", "..#..", "...#.", "...#.", "...#.", "..#..", ".#..."],
+};
+
+/** Warned-about characters, so a typo in a title is reported once, not once per render frame. */
+const warnedGlyphs = new Set<string>();
+
+/**
+ * A word set in dots. Uppercase only; a full stop is inked in the accent, the way the brand's
+ * own is. Height is the given size, width follows.
+ */
+export function DotText({ text, size = 72, className }: { text: string; size?: number; className?: string }) {
+  const chars = text.toUpperCase().split("");
+  if (process.env.NODE_ENV !== "production") {
+    // An unknown character still renders as a blank, which is silent; say so in dev so a typo
+    // in a title shows up as a message rather than as an invisible gap.
+    for (const ch of chars) {
+      if (!DOT_GLYPHS[ch] && !warnedGlyphs.has(ch)) {
+        warnedGlyphs.add(ch);
+        console.warn(`DotText: no dot glyph for ${JSON.stringify(ch)} in ${JSON.stringify(text)}; rendering blank.`);
+      }
+    }
+  }
+  const w = chars.length * 6 - 1;
+  const h = 7;
+  return (
+    <svg
+      viewBox={`0 0 ${w} ${h}`}
+      height={size}
+      width={(size * w) / h}
+      className={className}
+      role="img"
+      aria-label={text}
+    >
+      {chars.map((ch, i) =>
+        (DOT_GLYPHS[ch] ?? DOT_GLYPHS[" "]!).flatMap((row, r) =>
+          row.split("").map((cell, c) =>
+            cell === "#" ? (
+              <circle
+                key={`${i}-${r}-${c}`}
+                cx={i * 6 + c + 0.5}
+                cy={r + 0.5}
+                r={0.4}
+                fill={ch === "." ? "var(--accent)" : "var(--text)"}
+              />
+            ) : null,
+          ),
+        ),
+      )}
     </svg>
   );
 }

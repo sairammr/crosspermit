@@ -199,3 +199,52 @@ export function useTreasury(owner: string | undefined, refreshKey: number) {
 
   return view;
 }
+
+export type ActivityRow = {
+  chainId: number;
+  chainName: string;
+  kind: "granted" | "locked" | "cleared" | "cancelled";
+  name: string;
+  owner: string;
+  token?: string;
+  spender?: string;
+  amount?: string;
+  expiration?: number;
+  timestamp?: number;
+  salt?: string;
+  at?: string;
+  txHash?: string;
+  blockNumber?: number;
+  explorer?: string;
+};
+
+export type ActivityView = { owner: string; covered: number[]; uncovered: number[]; rows: ActivityRow[] };
+
+/**
+ * Everything the control plane recorded for one owner, newest first.
+ *
+ * Distinct from `useTreasury` on purpose: that one answers "what authority stands now", this one
+ * answers "what happened" — and it is the only record of a grant that has since expired, because
+ * an expired allowance leaves no storage behind to read.
+ */
+export function useActivity(owner: string | undefined, refreshKey: number) {
+  const [view, setView] = useState<ActivityView | null | false>(null);
+
+  useEffect(() => {
+    if (!owner) {
+      setView(null);
+      return;
+    }
+    let live = true;
+    setView(null);
+    fetch(`${RELAYER_URL}/v1/activity/${owner}`)
+      .then(async (r) => (r.ok ? ((await r.json()) as ActivityView) : false))
+      .then((d) => live && setView(d))
+      .catch(() => live && setView(false));
+    return () => {
+      live = false;
+    };
+  }, [owner, refreshKey]);
+
+  return view;
+}

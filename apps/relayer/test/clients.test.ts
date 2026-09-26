@@ -88,6 +88,40 @@ describe("client mandates", () => {
     expect(after?.intentId).toBe("intent-1");
   });
 
+  test("a link opened with no terms carries none until the client signs", () => {
+    const c = fresh();
+    const open = c.create({ name: "Meridian Capital" });
+
+    expect(open.mandate).toBe("");
+    expect(open.capUnits).toBe("");
+    expect(open.ttlHours).toBe(0);
+    expect(open.chainIds).toEqual([]);
+    expect(open.status).toBe("awaiting");
+  });
+
+  test("the terms recorded are the ones the client signed", () => {
+    const c = fresh();
+    const { token } = c.create({ name: "Meridian Capital" });
+
+    const bound = c.link(token, OWNER, "intent-1", {
+      capUnits: "9007199254740993",
+      ttlHours: 168,
+      chainIds: [84532, 84532, 11155111],
+    });
+
+    expect(bound?.capUnits).toBe("9007199254740993");
+    expect(bound?.ttlHours).toBe(168);
+    expect(bound?.chainIds).toEqual([84532, 11155111]);
+  });
+
+  test("terms offered at the link are validated, not coerced", () => {
+    const c = fresh();
+    const { token } = c.create({ name: "Meridian Capital" });
+    expect(rejectMessage(() => c.link(token, OWNER, "intent-1", { capUnits: "0" }))).toContain("positive integer");
+    // Nothing was written by the refused call, so the link is still open.
+    expect(c.get(token)?.status).toBe("awaiting");
+  });
+
   test("tokens do not repeat", () => {
     const c = fresh();
     const tokens = new Set(Array.from({ length: 200 }, () => c.create(valid).token));

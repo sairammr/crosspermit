@@ -1,0 +1,176 @@
+/* The per-client dashboard. Everything structural comes from desk.css; this is only the
+   recommendation block, which desk.css has no shape for. */
+
+.client-page .grp {
+  margin: 26px 0 10px;
+  font-size: 13px;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-4);
+  border-top: 1px solid var(--line-soft);
+  padding-top: 14px;
+}
+
+.client-page .rec {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--idle);
+  border-radius: var(--r-sm);
+  background: var(--panel);
+  padding: 14px 16px;
+  margin: 10px 0;
+}
+
+/* Routable is the only state that gets the signal colour. A designed strategy that looked live
+   would be the exact lie this screen exists to avoid. */
+.client-page .rec.on {
+  border-left-color: var(--accent);
+}
+
+.client-page .rec.off {
+  background: transparent;
+}
+
+.client-page .rec-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.client-page .rec-head h4 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.client-page .kindtag {
+  color: var(--ink-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xs);
+  padding: 0 5px;
+}
+
+.client-page .score {
+  margin-left: auto;
+  color: var(--ink-4);
+  font-variant-numeric: tabular-nums;
+}
+
+.client-page .rec > p {
+  margin: 0 0 8px;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+
+.client-page .rec .note {
+  margin: 4px 0 0;
+}
+
+.client-page .rec .note.blocked {
+  color: var(--ink-3);
+}
+
+.client-page .rec .kv-list {
+  margin: 8px 0;
+}
+
+/* Data on the left, everything that needs width on the right. The rail sticks because the
+   figures are what you check while scrolling the venue and the history. */
+.client-page .client-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 340px) minmax(0, 1fr);
+  align-items: start;
+}
+
+.client-page .rail {
+  position: sticky;
+  top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+/* One column below a laptop: a 340px rail beside a table is two cramped columns, not a layout. */
+@media (max-width: 1080px) {
+  .client-page .client-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .client-page .rail {
+    position: static;
+    max-height: none;
+    overflow: visible;
+  }
+}
+
+.client-page .rail .kv-list {
+  margin: 10px 0 0;
+}
+
+.client-page .rail .kv dd {
+  font-variant-numeric: tabular-nums;
+}
+
+.client-page .chart {
+  margin: 0 0 14px;
+}
+
+.client-page .chart figcaption {
+  display: flex;
+  justify-content: space-between;
+  color: var(--ink-4);
+  margin-bottom: 4px;
+}
+
+/* The canvas primitives size to their parent, so the parent is the only thing that sets height. */
+.client-page .plot {
+  position: relative;
+  height: 84px;
+  background: var(--panel-2);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-xs);
+  overflow: hidden;
+}
+
+.client-page .plot canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.client-page .plot:empty::after,
+.client-page .plot:not(:has(canvas))::after {
+  content: "no data to draw";
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+
+.client-page .chart .note {
+  margin-top: 5px;
+}
+
+.client-page .pool {
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--panel);
+  padding: 14px 16px;
+  margin: 12px 0;
+}
+
+.client-page .pool .grid {
+  margin: 8px 0;
+}
+
+.client-page .pool .field input {
+  width: 140px;
+}

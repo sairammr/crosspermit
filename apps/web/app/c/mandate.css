@@ -1,0 +1,377 @@
+/* The client's mandate sheet: one column of paper on the app canvas, same kit as the desk.
+   Everything structural comes from globals.css (.panel, .field, .btn, .tag, .hint); this file is
+   only the page frame and the two lists the sheet adds — chains and key/value rows. */
+
+.cpm {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 28px 20px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.cpm .bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cpm .panel {
+  padding: 22px;
+  border-radius: var(--r-md);
+}
+
+.cpm .sec-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.cpm .sec-head h1 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.cpm .sub {
+  margin: 0 0 18px;
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.5;
+  max-width: 52ch;
+}
+
+/* ---- key/value rows: the summary, and the per-chain landing after signing ---- */
+
+/* dl.kv in globals.css is a single flex row; here it is a list of rows. */
+.cpm .kv {
+  display: block;
+  margin: 0;
+  border-top: 1px solid var(--line-soft);
+  border-bottom: 0;
+  padding: 0;
+}
+.cpm .kv.total {
+  margin-top: 4px;
+}
+.cpm .kvrow {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 10px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+.cpm .kvrow dt {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+.cpm .kvrow dd {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.cpm .kvrow .v {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--text);
+  word-break: break-word;
+}
+.cpm .kvrow .m {
+  font-size: 12px;
+  color: var(--ink-4);
+  word-break: break-word;
+}
+.cpm .tag.ok {
+  color: var(--ok);
+}
+.cpm .tag.bad {
+  color: var(--bad);
+}
+
+/* ---- the one action ---- */
+
+.cpm .btn.go {
+  width: 100%;
+  margin-top: 18px;
+}
+.cpm .btn.go .cap {
+  width: 100%;
+  justify-content: center;
+}
+.cpm .hint {
+  margin: 12px 0 0;
+  font-size: 12.5px;
+}
+
+.cpm .note-block .v {
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 500;
+}
+.cpm .note-block .m {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.5;
+  max-width: 52ch;
+}
+
+.cpm .seal {
+  text-align: center;
+  color: var(--ink-4);
+}
+
+/* ---- connected: assets on the left, the grant on the right ---- */
+
+.cpm.wide {
+  max-width: 1040px;
+}
+.cpm .cols {
+  display: grid;
+  grid-template-columns: 1.15fr 1fr;
+  gap: 14px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .cpm .cols {
+    grid-template-columns: 1fr;
+  }
+}
+
+.cpm .inv .sub,
+.cpm .grantcol .sub {
+  margin-bottom: 14px;
+}
+
+/* the inventory: one row per token, per chain */
+.cpm .holdings,
+.cpm .chosen,
+.cpm .preview-chains {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.cpm .holdings li + li {
+  margin-top: -1px;
+}
+.cpm .holding {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 11px 12px;
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease);
+}
+.cpm .holdings li:first-child .holding {
+  border-radius: var(--r-sm) var(--r-sm) 0 0;
+}
+.cpm .holdings li:last-child .holding {
+  border-radius: 0 0 var(--r-sm) var(--r-sm);
+}
+.cpm .holding:hover {
+  background: var(--panel-2);
+}
+.cpm .holding[aria-pressed="true"] {
+  background: var(--signal-wash);
+  border-color: var(--accent);
+  position: relative;
+  z-index: 1;
+}
+.cpm .holding .who,
+.cpm .chosen .who {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.cpm .holding .t {
+  font-size: 13px;
+  font-weight: 600;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.cpm .holding .t .chain {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-4);
+  font-weight: 400;
+}
+.cpm .holding .s {
+  font-size: 11.5px;
+  color: var(--ink-4);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cpm .holding .bal {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+.cpm .holding .bal .t {
+  font-family: var(--mono);
+  font-size: 13px;
+}
+.cpm .holding .bal .s {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-4);
+}
+
+/* the chosen list on the right */
+.cpm .chosen li {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+.cpm .chosen .t {
+  font-size: 13px;
+  font-weight: 600;
+}
+.cpm .chosen .s {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+.cpm .chosen .amt {
+  font-family: var(--mono);
+  font-size: 13px;
+}
+.cpm .chosen .x {
+  background: none;
+  border: 0;
+  color: var(--ink-4);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 4px;
+}
+.cpm .chosen .x:hover {
+  color: var(--alert-ink);
+}
+.cpm .empty {
+  margin: 0 0 4px;
+  padding: 18px 0;
+  border-top: 1px solid var(--line-soft);
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--ink-4);
+  font-size: 13px;
+}
+.cpm .grantcol .terms {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 12px;
+  margin-top: 16px;
+}
+@media (max-width: 560px) {
+  .cpm .grantcol .terms {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* the chain list shown before a wallet is connected */
+.cpm .preview-chains li {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+.cpm .preview-chains .name {
+  font-size: 13px;
+}
+.cpm .preview-chains .meta {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-4);
+}
+
+/* ---- marks: a token disc badged with its chain ---- */
+
+.cpm .icon {
+  position: relative;
+  display: inline-block;
+  width: 34px;
+  height: 34px;
+  flex: none;
+}
+.cpm .icon.sm {
+  width: 26px;
+  height: 26px;
+}
+/* a token with a mark shows it; one without shows its letters on a plain disc */
+.cpm .icon img.disc {
+  display: block;
+  object-fit: contain;
+  background: none;
+}
+.cpm .icon .disc {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: var(--ink-deep);
+  color: var(--on-ink);
+  font-family: var(--mono);
+  /* Four characters of a symbol have to fit a 34px disc, so the type is sized to the disc. */
+  font-size: 8.5px;
+  letter-spacing: -0.02em;
+}
+.cpm .icon.sm .disc {
+  font-size: 7px;
+}
+/* the chain badge sits on the token mark, ringed in the row's own background so it reads as a
+   badge rather than as part of the token's logo */
+.cpm .icon .chainbadge {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid var(--panel);
+  background: var(--panel);
+  object-fit: contain;
+}
+.cpm .icon.sm .chainbadge {
+  width: 13px;
+  height: 13px;
+  right: -2px;
+  bottom: -2px;
+}
+.cpm .holding[aria-pressed="true"] .icon .chainbadge {
+  border-color: var(--signal-wash);
+  background: var(--signal-wash);
+}
+.cpm .chainmark {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  object-fit: contain;
+}

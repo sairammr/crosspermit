@@ -2,10 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { formatUnits, parseUnits } from "viem";
-import { useAccount, useSignTypedData } from "wagmi";
+import { useAccount, useSignTypedData, useSwitchChain } from "wagmi";
 
-import { approveEntry, lockEntry, prepareIntent, toWire } from "@crosspermit/sdk";
+import { SIGNING_CHAIN_ID, approveEntry, lockEntry, prepareIntent, toWire } from "@crosspermit/sdk";
 import { CHAINS, CROSS_PERMIT, RELAYER_URL, WC_PROJECT_ID, chainById } from "../../src/config";
+import { onSigningChain, openAppKit } from "../../src/wagmi";
+import { HorseMatrix } from "../../src/dithergraph";
 import { ClientsTab, StrategiesTab } from "./desk";
 import {
   type IntentStatus,
@@ -21,6 +23,18 @@ const TABS = ["clients", "permission", "relayer", "treasury", "strategies", "yie
 type Tab = (typeof TABS)[number];
 
 const short = (s: string, n = 6) => (s.length > 2 * n ? `${s.slice(0, n)}…${s.slice(-4)}` : s);
+
+/** Section head: "0N / NAME" beside the title, kit style. */
+function SecHead({ n, name, title }: { n: number; name: string; title: string }) {
+  return (
+    <div className="sec-head">
+      <h2>{title}</h2>
+      <span className="label">
+        {String(n).padStart(2, "0")} / {name}
+      </span>
+    </div>
+  );
+}
 
 export default function Page() {
   const [tab, setTab] = useState<Tab>("clients");
@@ -43,41 +57,68 @@ export default function Page() {
   return (
     <div className="wrap">
       <header className="top">
-        <div>
-          <div className="brand">
-            CrossPermit <span>one signature, every chain</span>
-          </div>
-          <div className="mono dim" style={{ marginTop: 6 }}>
-            {CROSS_PERMIT} · same address on {CHAINS.length} chains
-          </div>
+        <a className="brandmark" href="/">
+          <HorseMatrix cols={20} size={28} />
+          CrossPermit
+        </a>
+
+        <nav className="tabs">
+          {TABS.map((t) => (
+            <button key={t} aria-selected={tab === t} onClick={() => setTab(t)}>
+              {t}
+            </button>
+          ))}
+        </nav>
+
+        <div className="row" style={{ gap: 14 }}>
+          <span className={`status ${isConnected ? "active" : ""}`}>
+            <i />
+            {isConnected ? "connected" : "no wallet"}
+          </span>
+          <button
+            className={`btn btn-sm ${isConnected ? "" : "btn-action"}`}
+            type="button"
+            onClick={() => openAppKit(isConnected ? { view: "Account" } : undefined)}
+          >
+            <span className="cap">{isConnected && address ? short(address, 6) : "Connect wallet"}</span>
+          </button>
         </div>
-        {/* AppKit's own element; it registers the connect button and the account modal. */}
-        <appkit-button balance="hide" />
       </header>
 
-      <nav className="tabs">
-        {TABS.map((t) => (
-          <button key={t} aria-selected={tab === t} onClick={() => setTab(t)}>
-            {t}
-          </button>
-        ))}
-      </nav>
+      <div className="row" style={{ justifyContent: "space-between", marginBottom: 16 }}>
+        <span className="micro">
+          CrossPermit {CROSS_PERMIT} · same address on {CHAINS.length} chains
+        </span>
+        <span className="micro">{subject ? `subject ${short(subject, 8)}` : "no subject"}</span>
+      </div>
 
       {!address && viewOnly && (
-        <p className="note">
-          Read-only view of <span className="mono">{viewOnly}</span>. Connect a wallet to sign.
-        </p>
+        <div className="alert">
+          <span>●</span>
+          <div>
+            <strong className="t">Read-only view</strong>
+            <p>
+              <span className="mono">{viewOnly}</span>. Connect a wallet to sign.
+            </p>
+          </div>
+        </div>
       )}
 
       {!WC_PROJECT_ID && (
-        <p className="note">
-          No <code>NEXT_PUBLIC_WC_PROJECT_ID</code> set, so WalletConnect is unavailable and only
-          injected wallets (MetaMask, Rabby) will connect. Everything else works. Get a project id at{" "}
-          <a href="https://dashboard.reown.com" target="_blank" rel="noreferrer">
-            dashboard.reown.com
-          </a>
-          .
-        </p>
+        <div className="alert">
+          <span>●</span>
+          <div>
+            <strong className="t">WalletConnect unavailable</strong>
+            <p>
+              No <code>NEXT_PUBLIC_WC_PROJECT_ID</code> set, so only injected wallets (MetaMask, Rabby) will connect.
+              Everything else works. Get a project id at{" "}
+              <a href="https://dashboard.reown.com" target="_blank" rel="noreferrer">
+                dashboard.reown.com
+              </a>
+              .
+            </p>
+          </div>
+        </div>
       )}
 
       {tab === "permission" && (
@@ -91,7 +132,9 @@ export default function Page() {
           }}
         />
       )}
-      {tab === "relayer" && <RelayerTab intentId={intentId} onPick={setIntentId} refreshKey={refreshKey} owner={subject} />}
+      {tab === "relayer" && (
+        <RelayerTab intentId={intentId} onPick={setIntentId} refreshKey={refreshKey} owner={subject} />
+      )}
       {tab === "clients" && <ClientsTab refreshKey={refreshKey} onChange={() => setRefreshKey((k) => k + 1)} />}
       {tab === "treasury" && <Treasury owner={subject} refreshKey={refreshKey} />}
       {tab === "strategies" && <StrategiesTab owner={subject} refreshKey={refreshKey} />}
@@ -117,6 +160,8 @@ function Permission({
   const [lock, setLock] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { chainId } = useAccount();
+  const { switchChainAsync } = useSwitchChain();
   const { signTypedDataAsync } = useSignTypedData();
 
   // Built eagerly so the payload is on screen BEFORE the wallet asks. A signer who only ever sees
@@ -136,9 +181,7 @@ function Permission({
         ttl: 3600,
         chains: CHAINS.map((c) => ({
           chainId: c.id,
-          permits: lock
-            ? [lockEntry(c.token, c.router)]
-            : [approveEntry(c.token, c.router, units, expiry)],
+          permits: lock ? [lockEntry(c.token, c.router)] : [approveEntry(c.token, c.router, units, expiry)],
         })),
       });
     } catch {
@@ -151,7 +194,11 @@ function Permission({
     setBusy(true);
     setError(null);
     try {
-      const signature = await signTypedDataAsync(preview.typedData as never);
+      // The wallet will not sign a domain pinned to a chain it is not on, and it does not switch
+      // itself, so ask it to move first. No transaction follows — the signature is spent on the
+      // chains the mandate names, never on the signing domain's chain.
+      await onSigningChain(chainId, switchChainAsync);
+      const signature = await signTypedDataAsync({ ...preview.typedData, chainId: SIGNING_CHAIN_ID } as never);
       const { status, body } = await postIntent(toWire({ ...preview.intent, signature }));
       if (status >= 400) throw new Error(`${body.code ?? status}: ${body.error ?? "rejected"}`);
       onSubmitted(String(body.intentId));
@@ -164,11 +211,12 @@ function Permission({
 
   return (
     <>
+      <SecHead n={2} name="permission" title={`One permission, ${CHAINS.length} chains`} />
+
       <div className="panel">
-        <h2>Build one permission for {CHAINS.length} chains</h2>
+        <span className="label">Build</span>
         <p className="sub">
-          One EIP-712 message over a merkle root of per-chain bundles. Sign once; the relayer submits
-          every leg.
+          One EIP-712 message over a merkle root of per-chain bundles. Sign once; the relayer submits every leg.
         </p>
 
         <div className="grid">
@@ -189,27 +237,27 @@ function Permission({
           </label>
         </div>
 
-        <div className="row">
-          <button className="action" disabled={!connected || !preview || busy} onClick={submit}>
-            {busy ? "signing…" : `Sign once, ${CHAINS.length} chains`}
+        <div className="row" style={{ marginTop: 8 }}>
+          <button className="btn btn-action" disabled={!connected || !preview || busy} onClick={submit}>
+            <span className="cap">{busy ? "signing…" : "Sign permission"}</span>
           </button>
-          {!connected && <span className="muted">connect a wallet to sign</span>}
+          {!connected && <span className="micro">connect a wallet to sign</span>}
         </div>
         {error && <div className="err">{error}</div>}
       </div>
 
       <div className="panel">
-        <h2>What you are about to sign</h2>
+        <span className="label">What you are about to sign</span>
         <p className="sub">
-          Every leaf is computed in this browser and folded into the root below. Nothing here came
-          from an RPC — a leaf that did would let a hostile endpoint choose what you sign.
+          Every leaf is computed in this browser and folded into the root below. Nothing here came from an RPC — a leaf
+          that did would let a hostile endpoint choose what you sign.
         </p>
 
         {!preview ? (
-          <p className="muted">Connect a wallet and enter an amount.</p>
+          <p className="note">Connect a wallet and enter an amount.</p>
         ) : (
           <>
-            <div className="grid" style={{ marginBottom: 14 }}>
+            <div className="grid" style={{ marginBottom: 16 }}>
               <div className="stat">
                 <div className="k">merkle root</div>
                 <div className="v">{short(preview.intent.root, 10)}</div>
@@ -234,8 +282,8 @@ function Permission({
                     <th>Chain</th>
                     <th>Action</th>
                     <th>Spender</th>
-                    <th>Amount</th>
-                    <th>Proof</th>
+                    <th className="num">Amount</th>
+                    <th className="num">Proof</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -245,12 +293,20 @@ function Permission({
                     return (
                       <tr key={leg.chainId}>
                         <td>
-                          {c.name} <span className="dim mono">{leg.chainId}</span>
+                          {c.name} <span className="dim">{leg.chainId}</span>
                         </td>
-                        <td>{p.modeOrExpiration === 2 ? <span className="tag bad">LOCK</span> : <span className="tag ok">APPROVE</span>}</td>
-                        <td className="mono">{short(p.account)}</td>
-                        <td className="mono">{p.modeOrExpiration === 2 ? "—" : formatUnits(p.amountDelta, 6)}</td>
-                        <td className="mono dim">{leg.proof.length} node{leg.proof.length === 1 ? "" : "s"}</td>
+                        <td>
+                          {p.modeOrExpiration === 2 ? (
+                            <span className="tag bad">LOCK</span>
+                          ) : (
+                            <span className="tag ok">APPROVE</span>
+                          )}
+                        </td>
+                        <td>{short(p.account)}</td>
+                        <td className="num">{p.modeOrExpiration === 2 ? "—" : formatUnits(p.amountDelta, 6)}</td>
+                        <td className="num dim">
+                          {leg.proof.length} node{leg.proof.length === 1 ? "" : "s"}
+                        </td>
                       </tr>
                     );
                   })}
@@ -258,8 +314,8 @@ function Permission({
               </table>
             </div>
             <p className="note">
-              The last chain carries a one-node proof because the tree leans left — order the chains
-              cheapest first so the dearest one gets the smallest calldata.
+              The last chain carries a one-node proof because the tree leans left — order the chains cheapest first so
+              the dearest one gets the smallest calldata.
             </p>
           </>
         )}
@@ -288,14 +344,16 @@ function RelayerTab({
 
   return (
     <>
+      <SecHead n={3} name="relayer" title="Relayer" />
+
       <div className="panel">
-        <h2>Relayer</h2>
+        <span className="label">Endpoint</span>
         <p className="sub">
-          {RELAYER_URL} — one POST covers every chain. It can pay gas and refuse to submit; it cannot
-          change who receives anything.
+          <span className="mono">{RELAYER_URL}</span> — one POST covers every chain. It can pay gas and refuse to
+          submit; it cannot change who receives anything.
         </p>
 
-        {chains === null && <p className="muted">connecting…</p>}
+        {chains === null && <p className="note">connecting…</p>}
         {chains === false && (
           <p className="err">
             unreachable. Start it: <span className="mono">bun run apps/relayer/src/server.ts</span>
@@ -316,9 +374,9 @@ function RelayerTab({
                 {chains.chains.map((c) => (
                   <tr key={c.chainId}>
                     <td>
-                      {c.name} <span className="dim mono">{c.chainId}</span>
+                      {c.name} <span className="dim">{c.chainId}</span>
                     </td>
-                    <td className="mono">{short(c.signer)}</td>
+                    <td>{short(c.signer)}</td>
                     <td>
                       <span className={`tag ${c.custody === "local" ? "warn" : "ok"}`}>{c.custody}</span>
                     </td>
@@ -338,28 +396,31 @@ function RelayerTab({
 
         {quota && (
           <p className="note">
-            Your remaining quota this window: {quota.intents} intents,{" "}
-            {(Number(quota.gasWei) / 1e18).toFixed(4)} ETH of gas, resetting in{" "}
-            {Math.ceil(quota.resetsInMs / 1000)}s.
+            Your remaining quota this window: {quota.intents} intents, {(Number(quota.gasWei) / 1e18).toFixed(4)} ETH of
+            gas, resetting in {Math.ceil(quota.resetsInMs / 1000)}s.
           </p>
         )}
       </div>
 
       <div className="panel">
-        <h2>
-          Live fan-out {connected && <span className="tag ok">streaming</span>}
-        </h2>
+        <div className="row" style={{ justifyContent: "space-between", marginBottom: 24 }}>
+          <span className="label">Live fan-out</span>
+          <span className={`status ${connected ? "live" : ""}`}>
+            <i />
+            {connected ? "streaming" : "idle"}
+          </span>
+        </div>
         <p className="sub">
           {intentId ? <span className="mono">{intentId}</span> : "sign an intent, or pick one below"}
         </p>
-        {status ? <LegTable status={status} /> : <p className="muted">nothing in flight.</p>}
+        {status ? <LegTable status={status} /> : <p className="note">nothing in flight.</p>}
       </div>
 
       <div className="panel">
-        <h2>Recent intents</h2>
+        <span className="label">Recent intents</span>
         <p className="sub">Every signature this relayer has fanned out.</p>
         {recent.length === 0 ? (
-          <p className="muted">none yet.</p>
+          <p className="note">none yet.</p>
         ) : (
           <div className="scroll">
             <table>
@@ -375,13 +436,13 @@ function RelayerTab({
               <tbody>
                 {recent.map((i) => (
                   <tr key={i.intentId}>
-                    <td className="mono">{short(i.intentId)}</td>
-                    <td className="mono">{short(i.owner)}</td>
-                    <td className="mono dim">{short(i.root)}</td>
-                    <td className="muted">{new Date(i.createdAt).toLocaleTimeString()}</td>
-                    <td>
-                      <button className="ghost" onClick={() => onPick(i.intentId)}>
-                        view
+                    <td>{short(i.intentId)}</td>
+                    <td>{short(i.owner)}</td>
+                    <td className="dim">{short(i.root)}</td>
+                    <td className="dim">{new Date(i.createdAt).toLocaleTimeString()}</td>
+                    <td className="num">
+                      <button className="btn btn-sm" onClick={() => onPick(i.intentId)}>
+                        <span className="cap">view</span>
                       </button>
                     </td>
                   </tr>
@@ -414,12 +475,12 @@ function LegTable({ status }: { status: IntentStatus }) {
             return (
               <tr key={leg.chainId}>
                 <td>
-                  {c?.name ?? leg.chainId} <span className="dim mono">{leg.chainId}</span>
+                  {c?.name ?? leg.chainId} <span className="dim">{leg.chainId}</span>
                 </td>
                 <td>
                   <span className={`tag ${tone(leg.status)}`}>{leg.status}</span>
                 </td>
-                <td className="mono">
+                <td>
                   {leg.txHash ? (
                     <a href={`${c?.explorer}/tx/${leg.txHash}`} target="_blank" rel="noreferrer">
                       {short(leg.txHash)}
@@ -428,7 +489,7 @@ function LegTable({ status }: { status: IntentStatus }) {
                     <span className="dim">—</span>
                   )}
                 </td>
-                <td className="muted" style={{ maxWidth: 380 }}>
+                <td className="prose" style={{ maxWidth: 380 }}>
                   {leg.error ?? (leg.status === "confirmed" ? "applied" : "")}
                 </td>
               </tr>
@@ -446,97 +507,101 @@ function Treasury({ owner, refreshKey }: { owner?: `0x${string}`; refreshKey: nu
   const view = useTreasury(owner, refreshKey);
 
   return (
-    <div className="panel">
-      <h2>Outstanding authority</h2>
-      <p className="sub">
-        What this account has authorised, to whom, on which chain — decoded from indexed{" "}
-        <span className="mono">Permit</span> events in the MultiBaas control plane, not read from
-        chain storage. Storage answers what an allowance is now; an auditor asks how it got there.
-      </p>
+    <>
+      <SecHead n={4} name="treasury" title="Outstanding authority" />
 
-      {!owner && <p className="muted">connect a wallet.</p>}
-      {owner && view === null && <p className="muted">reading the control plane…</p>}
-      {owner && view === false && (
-        <p className="err">relayer unreachable — start it to read the ledger.</p>
-      )}
+      <div className="panel">
+        <span className="label">Ledger</span>
+        <p className="sub">
+          What this account has authorised, to whom, on which chain — decoded from indexed{" "}
+          <span className="mono">Permit</span> events in the MultiBaas control plane, not read from chain storage.
+          Storage answers what an allowance is now; an auditor asks how it got there.
+        </p>
 
-      {owner && view && typeof view === "object" && (
-        <>
-          {view.error && <p className="err">{view.error}</p>}
+        {!owner && <p className="note">connect a wallet.</p>}
+        {owner && view === null && <p className="note">reading the control plane…</p>}
+        {owner && view === false && <p className="err">relayer unreachable — start it to read the ledger.</p>}
 
-          {view.rows.length === 0 ? (
-            <p className="muted">
-              No indexed authority for this account yet. Indexing starts at the block CrossPermit was
-              registered, so activity from before that is not shown.
-            </p>
-          ) : (
-            <div className="scroll">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Chain</th>
-                    <th>Token</th>
-                    <th>Spender</th>
-                    <th>Amount</th>
-                    <th>State</th>
-                    <th>Signed at</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {view.rows.map((r) => (
-                    <tr key={`${r.chainId}:${r.token}:${r.spender}`}>
-                      <td>
-                        {r.chainName} <span className="dim mono">{r.chainId}</span>
-                      </td>
-                      <td className="mono">{short(r.token)}</td>
-                      <td className="mono">{short(r.spender)}</td>
-                      <td className="mono">{(Number(r.amount) / 1e6).toLocaleString()}</td>
-                      <td>
-                        <span className={`tag ${r.state === "locked" ? "bad" : r.state === "active" ? "ok" : "warn"}`}>
-                          {r.state}
-                        </span>
-                      </td>
-                      <td className="muted">
-                        {r.explorer ? (
-                          <a href={r.explorer} target="_blank" rel="noreferrer">
-                            {new Date(r.timestamp * 1000).toLocaleString()}
-                          </a>
-                        ) : (
-                          new Date(r.timestamp * 1000).toLocaleString()
-                        )}
-                      </td>
+        {owner && view && typeof view === "object" && (
+          <>
+            {view.error && <p className="err">{view.error}</p>}
+
+            {view.rows.length === 0 ? (
+              <p className="note">
+                No indexed authority for this account yet. Indexing starts at the block CrossPermit was registered, so
+                activity from before that is not shown.
+              </p>
+            ) : (
+              <div className="scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Chain</th>
+                      <th>Token</th>
+                      <th>Spender</th>
+                      <th className="num">Amount</th>
+                      <th>State</th>
+                      <th>Signed at</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                  </thead>
+                  <tbody>
+                    {view.rows.map((r) => (
+                      <tr key={`${r.chainId}:${r.token}:${r.spender}`}>
+                        <td>
+                          {r.chainName} <span className="dim">{r.chainId}</span>
+                        </td>
+                        <td>{short(r.token)}</td>
+                        <td>{short(r.spender)}</td>
+                        <td className="num">{(Number(r.amount) / 1e6).toLocaleString()}</td>
+                        <td>
+                          <span
+                            className={`tag ${r.state === "locked" ? "bad" : r.state === "active" ? "ok" : "warn"}`}
+                          >
+                            {r.state}
+                          </span>
+                        </td>
+                        <td className="dim">
+                          {r.explorer ? (
+                            <a href={r.explorer} target="_blank" rel="noreferrer">
+                              {new Date(r.timestamp * 1000).toLocaleString()}
+                            </a>
+                          ) : (
+                            new Date(r.timestamp * 1000).toLocaleString()
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
 
-          <div className="grid" style={{ marginTop: 14 }}>
-            <div className="stat">
-              <div className="k">chains with an audit trail</div>
-              <div className="v">{view.covered.length}</div>
-              <div className="n">{view.covered.join(", ") || "none"}</div>
+            <div className="grid" style={{ marginTop: 16 }}>
+              <div className="stat">
+                <div className="k">chains with an audit trail</div>
+                <div className="v">{view.covered.length}</div>
+                <div className="n">{view.covered.join(", ") || "none"}</div>
+              </div>
+              <div className="stat">
+                <div className="k">chains without one</div>
+                <div className="v">{view.uncovered.length}</div>
+                <div className="n">{view.uncovered.join(", ") || "none"}</div>
+              </div>
             </div>
-            <div className="stat">
-              <div className="k">chains without one</div>
-              <div className="v">{view.uncovered.length}</div>
-              <div className="n">{view.uncovered.join(", ") || "none"}</div>
-            </div>
-          </div>
 
-          {view.uncovered.length > 0 && (
-            <p className="note">
-              Chain{view.uncovered.length > 1 ? "s" : ""} {view.uncovered.join(", ")} ha
-              {view.uncovered.length > 1 ? "ve" : "s"} no MultiBaas deployment, so nothing indexes
-              {view.uncovered.length > 1 ? " them" : " it"} and authority there will never appear in
-              this table. That is a gap in the record, not an absence of exposure — a free-tier
-              account gets one deployment per network.
-            </p>
-          )}
-        </>
-      )}
-    </div>
+            {view.uncovered.length > 0 && (
+              <p className="note">
+                Chain{view.uncovered.length > 1 ? "s" : ""} {view.uncovered.join(", ")} ha
+                {view.uncovered.length > 1 ? "ve" : "s"} no MultiBaas deployment, so nothing indexes
+                {view.uncovered.length > 1 ? " them" : " it"} and authority there will never appear in this table. That
+                is a gap in the record, not an absence of exposure — a free-tier account gets one deployment per
+                network.
+              </p>
+            )}
+          </>
+        )}
+      </div>
+    </>
   );
 }
 
@@ -554,11 +619,13 @@ function Yield() {
 
   return (
     <>
+      <SecHead n={6} name="yield" title="Yield" />
+
       <div className="panel">
-        <h2>Aave v4 — Core Hub, MAIN Spoke</h2>
+        <span className="label">Aave v4 — Core Hub, MAIN Spoke</span>
         <p className="sub">
-          Principal is pulled through CrossPermit, so deploying idle cash rides the same single
-          signature as everything else in the intent.
+          Principal is pulled through CrossPermit, so deploying idle cash rides the same single signature as everything
+          else in the intent.
         </p>
         <div className="grid">
           {rows.map((r) => (
@@ -570,15 +637,14 @@ function Yield() {
           ))}
         </div>
         <p className="note">
-          Figures recorded from <span className="mono">FORK=1 forge test --match-contract TreasuryFork</span>{" "}
-          against live Ethereum mainnet. APR and APY are separate numbers on purpose: the Hub exposes
-          only a borrow rate, so supply APR is derived, and a treasury that reports a borrow rate as
-          its own yield overstates its returns.
+          Figures recorded from <span className="mono">FORK=1 forge test --match-contract TreasuryFork</span> against
+          live Ethereum mainnet. APR and APY are separate numbers on purpose: the Hub exposes only a borrow rate, so
+          supply APR is derived, and a treasury that reports a borrow rate as its own yield overstates its returns.
         </p>
       </div>
 
       <div className="panel">
-        <h2>Tokenized equities</h2>
+        <span className="label">Tokenized equities</span>
         <p className="sub">NVIDIA and peers, funded by the same signature.</p>
         <div className="scroll">
           <table>
@@ -593,7 +659,7 @@ function Yield() {
             <tbody>
               <tr>
                 <td>NVIDIA (Ondo Tokenized)</td>
-                <td className="mono">
+                <td>
                   <a
                     href="https://etherscan.io/token/0x2D1F7226Bd1F780AF6B9A49DCC0aE00E8Df4bDEE"
                     target="_blank"
@@ -602,7 +668,7 @@ function Yield() {
                     NVDAon
                   </a>
                 </td>
-                <td className="muted">issuer mint / redeem</td>
+                <td className="dim">issuer mint / redeem</td>
                 <td>
                   <span className="tag warn">venue adapter pending</span>
                 </td>
@@ -611,10 +677,10 @@ function Yield() {
           </table>
         </div>
         <p className="note">
-          The desk&apos;s guards are proved against the real token: compliance gate deny-by-default,
-          oracle staleness bound, and a price-deviation band. The venue itself is still a mock,
-          because NVDAon&apos;s on-chain route is the issuer&apos;s gated mint/redeem window rather
-          than an AMM anyone can trade against. Stated plainly rather than demoed as if it were live.
+          The desk&apos;s guards are proved against the real token: compliance gate deny-by-default, oracle staleness
+          bound, and a price-deviation band. The venue itself is still a mock, because NVDAon&apos;s on-chain route is
+          the issuer&apos;s gated mint/redeem window rather than an AMM anyone can trade against. Stated plainly rather
+          than demoed as if it were live.
         </p>
       </div>
     </>
@@ -627,39 +693,43 @@ function Audit({ intentId }: { intentId: string | null }) {
   const { status } = useIntentStream(intentId);
 
   return (
-    <div className="panel">
-      <h2>One signature, every record it produced</h2>
-      <p className="sub">
-        The screen a risk committee asks for: a single authorisation expanded into the N on-chain
-        transactions it caused, instead of N separate approval logs to reconcile.
-      </p>
+    <>
+      <SecHead n={7} name="audit" title="One signature, every record it produced" />
 
-      {!status ? (
-        <p className="muted">sign an intent, or pick one from the relayer tab.</p>
-      ) : (
-        <>
-          <div className="grid" style={{ marginBottom: 14 }}>
-            <div className="stat">
-              <div className="k">intent</div>
-              <div className="v">{short(status.intentId, 8)}</div>
-              <div className="n">keyed on owner, salt and root</div>
-            </div>
-            <div className="stat">
-              <div className="k">signed root</div>
-              <div className="v">{short(status.root, 8)}</div>
-              <div className="n">one signature covered every leg</div>
-            </div>
-            <div className="stat">
-              <div className="k">outcome</div>
-              <div className="v">{status.done ? (status.ok ? "complete" : "partial") : "in flight"}</div>
-              <div className="n">
-                {status.legs.filter((l) => l.status === "confirmed").length}/{status.legs.length} chains confirmed
+      <div className="panel">
+        <span className="label">Record</span>
+        <p className="sub">
+          The screen a risk committee asks for: a single authorisation expanded into the N on-chain transactions it
+          caused, instead of N separate approval logs to reconcile.
+        </p>
+
+        {!status ? (
+          <p className="note">sign an intent, or pick one from the relayer tab.</p>
+        ) : (
+          <>
+            <div className="grid" style={{ marginBottom: 16 }}>
+              <div className="stat">
+                <div className="k">intent</div>
+                <div className="v">{short(status.intentId, 8)}</div>
+                <div className="n">keyed on owner, salt and root</div>
+              </div>
+              <div className="stat">
+                <div className="k">signed root</div>
+                <div className="v">{short(status.root, 8)}</div>
+                <div className="n">one signature covered every leg</div>
+              </div>
+              <div className="stat">
+                <div className="k">outcome</div>
+                <div className="v">{status.done ? (status.ok ? "complete" : "partial") : "in flight"}</div>
+                <div className="n">
+                  {status.legs.filter((l) => l.status === "confirmed").length}/{status.legs.length} chains confirmed
+                </div>
               </div>
             </div>
-          </div>
-          <LegTable status={status} />
-        </>
-      )}
-    </div>
+            <LegTable status={status} />
+          </>
+        )}
+      </div>
+    </>
   );
 }

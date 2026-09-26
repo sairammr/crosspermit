@@ -14,10 +14,11 @@ export type ClientRow = {
   token: string;
   name: string;
   mandate: string;
-  /** Per-chain allowance cap, in the token's smallest unit, as a decimal string. */
+  /** Per-chain allowance cap in the token's smallest unit, as a decimal string; "" until set. */
   capUnits: string;
+  /** Hours the allowance lives for once signed; 0 until set. */
   ttlHours: number;
-  /** JSON array of chain ids the desk is asking to operate on. */
+  /** JSON array of chain ids the grant covers; "[]" until set. */
   chainIds: string;
   owner: string | null;
   intentId: string | null;
@@ -61,24 +62,8 @@ export class Clients {
    */
   create(input: Record<string, unknown>): ClientView {
     const name = text(input.name, "name", MAX_NAME);
-    const mandate = text(input.mandate, "mandate", MAX_MANDATE);
-
-    // Kept as a string end to end. The cap is a token amount in base units and can exceed 2^53;
-    // parsing it to a JS number to "check" it is how a 6-decimal cap quietly changes value.
-    const capUnits = String(input.capUnits ?? "").trim();
-    if (!/^[0-9]{1,30}$/.test(capUnits) || capUnits === "0") {
-      throw new ClientError("cap must be a positive integer in the token's base units");
-    }
-
-    const ttlHours = Number(input.ttlHours);
-    if (!Number.isInteger(ttlHours) || ttlHours < 1 || ttlHours > 8760) {
-      throw new ClientError("ttlHours must be a whole number of hours between 1 and 8760");
-    }
-
-    const chainIds = Array.isArray(input.chainIds) ? input.chainIds.map(Number) : [];
-    if (!chainIds.length || chainIds.some((id) => !Number.isInteger(id) || id <= 0)) {
-      throw new ClientError("chainIds must be a non-empty array of chain ids");
-    }
+    const mandate = input.mandate === undefined ? "" : text(input.mandate, "mandate", MAX_MANDATE);
+    const terms = readTerms(input);
 
     const row: ClientRow = {
       // 128 bits from the platform CSPRNG. Guessable tokens would let anyone enumerate the desk's
@@ -86,9 +71,11 @@ export class Clients {
       token: crypto.randomUUID().replace(/-/g, ""),
       name,
       mandate,
-      capUnits,
-      ttlHours,
-      chainIds: JSON.stringify([...new Set(chainIds)]),
+      // Unset means the desk proposed no terms: the client chooses the token, the cap and the
+      // expiry on the page, and what they actually signed is written back by `link`.
+      capUnits: terms.capUnits ?? "",
+      ttlHours: terms.ttlHours ?? 0,
+      chainIds: JSON.stringify(terms.chainIds ?? []),
       owner: null,
       intentId: null,
       createdAt: Date.now(),
@@ -122,11 +109,26 @@ export class Clients {
    * racing the same link cannot both claim it — the desk would otherwise show one name against
    * another account's funds.
    */
-  link(token: string, owner: string, intentId: string): ClientView | null {
+  link(token: string, owner: string, intentId: string, input: Record<string, unknown> = {}): ClientView | null {
     if (!/^0x[0-9a-fA-F]{40}$/.test(owner)) throw new ClientError("owner must be an address");
+    // Whatever the client actually chose is recorded here, not what the desk asked for. On a link
+    // the desk left open these are the only terms that ever existed.
+    const t = readTerms(input);
     const res = this.db
-      .query("UPDATE clients SET owner=?, intentId=?, linkedAt=? WHERE token=? AND owner IS NULL AND revokedAt IS NULL")
-      .run(owner, intentId, Date.now(), token);
+      .query(
+        "UPDATE clients SET owner=?, intentId=?, linkedAt=?," +
+          " capUnits=COALESCE(?,capUnits), ttlHours=COALESCE(?,ttlHours), chainIds=COALESCE(?,chainIds)" +
+          " WHERE token=? AND owner IS NULL AND revokedAt IS NULL",
+      )
+      .run(
+        owner,
+        intentId,
+        Date.now(),
+        t.capUnits ?? null,
+        t.ttlHours ?? null,
+        t.chainIds ? JSON.stringify(t.chainIds) : null,
+        token,
+      );
     if (res.changes === 0) return null;
     return this.get(token);
   }
@@ -147,6 +149,50 @@ export class Clients {
 
 export class ClientError extends Error {
   readonly code = "invalid_mandate";
+}
+
+/**
+ * The three numbers that describe a grant, when they are present.
+ *
+ * Every one is optional: the desk may propose them, the client may set them, and a link where
+ * neither did is a link that grants nothing. What is present is validated rather than coerced — a
+ * cap that silently became 0, or a chain list that silently lost a chain, is a document someone
+ * would later be shown as though they had agreed to it.
+ */
+function readTerms(input: Record<string, unknown>): {
+  capUnits?: string;
+  ttlHours?: number;
+  chainIds?: number[];
+} {
+  const out: { capUnits?: string; ttlHours?: number; chainIds?: number[] } = {};
+
+  if (input.capUnits !== undefined) {
+    // Kept as a string end to end. The cap is a token amount in base units and can exceed 2^53;
+    // parsing it to a JS number to "check" it is how a 6-decimal cap quietly changes value.
+    const capUnits = String(input.capUnits).trim();
+    if (!/^[0-9]{1,30}$/.test(capUnits) || capUnits === "0") {
+      throw new ClientError("cap must be a positive integer in the token's base units");
+    }
+    out.capUnits = capUnits;
+  }
+
+  if (input.ttlHours !== undefined) {
+    const ttlHours = Number(input.ttlHours);
+    if (!Number.isInteger(ttlHours) || ttlHours < 1 || ttlHours > 8760) {
+      throw new ClientError("ttlHours must be a whole number of hours between 1 and 8760");
+    }
+    out.ttlHours = ttlHours;
+  }
+
+  if (input.chainIds !== undefined) {
+    const chainIds = Array.isArray(input.chainIds) ? input.chainIds.map(Number) : [];
+    if (!chainIds.length || chainIds.some((id) => !Number.isInteger(id) || id <= 0)) {
+      throw new ClientError("chainIds must be a non-empty array of chain ids");
+    }
+    out.chainIds = [...new Set(chainIds)];
+  }
+
+  return out;
 }
 
 function text(value: unknown, field: string, max: number): string {

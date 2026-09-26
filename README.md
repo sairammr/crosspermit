@@ -67,6 +67,41 @@ CANCEL_CROSSPERMIT_TYPEHASH()  0x184e9b675fc89b0718770fb9e1bf1ebdfe0780b451ab8ed
 Identical on Ethereum, Base and Optimism Sepolia, because the domain pins `chainId = 1` and the
 CREATE2 address is the same everywhere.
 
+### LiquidityDesk — the same writ, now providing liquidity
+
+| Chain | chainId | LiquidityDesk | v4 PoolManager |
+|---|---|---|---|
+| Ethereum Sepolia | 11155111 | [`0x2EDaA9629436C9D0b93301422a27b640068D7Cde`](https://sepolia.etherscan.io/address/0x2EDaA9629436C9D0b93301422a27b640068D7Cde) | `0xE03A1074c86CFeDd5C142C4F04F1a1536e203543` |
+| Base Sepolia | 84532 | [`0xE666e3F76062d670A84b964Ca4D9B456b1531C03`](https://sepolia.basescan.org/address/0xE666e3F76062d670A84b964Ca4D9B456b1531C03) | `0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408` |
+| Optimism Sepolia | 11155420 | [`0x012a12367CeEB9e4ead98803D8019913cA80c3C2`](https://sepolia-optimism.etherscan.io/address/0x012a12367CeEB9e4ead98803D8019913cA80c3C2) | `0xf7F5aB3DcA35e17dE187b459159BC643853B3c67` |
+
+A swap proves the writ can *trade*. This proves it can *invest*: the desk calls
+`add(client, poolKey, ticks, liquidity, max0, max1)`, and inside the v4 unlock both sides are paid
+by `CrossPermit.transferFrom(client -> PoolManager)` — the same call the Universal Router makes
+when it settles a swap. The position is keyed by `salt = the client's address`, so v4 core holds it
+in their name and the adapter needs no share accounting of its own.
+
+The asymmetry is structural rather than promised: `add` takes an `owner` and may be called by
+anyone, because it can only move tokens from an account that signed a writ naming this contract,
+and only into the pool. `remove` and `collect` are `msg.sender`-scoped, so the desk has no position
+to withdraw and nothing to sweep.
+
+Proved live, both directions, with two different keys:
+
+```
+client 0x9673afB9…4Eb4   desk 0xaa46C4a5…3B7C
+writ armed            https://sepolia.basescan.org/tx/0x966b7096b355cf8b417bd6f68a6f09006492dbf35a140c4d9111d9a67cabe947
+desk added L=33837499 https://sepolia.basescan.org/tx/0xbd71a1d452b671349d8a578f1940f9a875792ed6f815b56b1ff3b970518a9999
+  client paid 0.999866 + 1.000135, client -> PoolManager, adapter balance 0
+desk cannot remove    simulation reverts: no position under the desk's salt
+client withdrew       https://sepolia.basescan.org/tx/0x4f21f28314c24abb2840454c81c557c0694776c08ed46d49721be6952fa74c8c
+```
+
+The same run on Ethereum Sepolia: [writ](https://sepolia.etherscan.io/tx/0xad002ad88409e1be4cf1ae05b8280f756e2c4fcd7d48423c386035821bc2400a),
+[add](https://sepolia.etherscan.io/tx/0xfacdabb72adaa5132f181f8c7140cfc09f4ff4b78208c504a6b4c11766ad84ee).
+`FORK=1 forge test --match-contract LiquidityFork` runs the whole sequence, including the two
+things the desk must not be able to do, against the live PoolManager on all three chains.
+
 ### The v4 swap, and why it is the check that matters
 
 `PERMIT2_TRANSFER_FROM` proves the router's `PERMIT2` immutable is CrossPermit, but it is not a path
@@ -122,6 +157,28 @@ on the client, one 65-byte signature covers every chain, a second claim on the s
 an unknown intent cannot bind a mandate, and the allowance on each chain rises by exactly the cap
 that was offered.
 
+### One client, one screen
+
+Clicking a client in the desk's ledger opens `/app/client/<token>`: the mandate, the assets it
+approved, who can spend them, what can be done with them, and the venue where one of those things
+is a live button.
+
+| Panel | Source | What it answers |
+|---|---|---|
+| Rail | all four, side by side | held, deployable, chains, terms asked versus granted |
+| How it grew | MultiBaas `Permit` events, PoolManager storage | authority outstanding over time, per chain, pool depth and price drift, consumption |
+| Access | MultiBaas ledger + `eth_call` | every spender by name, and an **unrecognised spender** row when it is neither the router nor the liquidity desk |
+| Platform | `GET /v1/chains` | relayer signer and custody per chain, which chains MultiBaas indexes, both contract addresses |
+| Uniswap v4 pools | `extsload` on the PoolManager | price, in-range depth, this client's own position — then sign the writ, add, collect, take it back |
+| Strategies | a pure recommender, `src/strategies.ts` | ranked by fit, routable first, every figure carrying its provenance and every block carrying its reason |
+| History | MultiBaas event ledger | every grant, lock and burned salt, ordered by the timestamp the client signed |
+
+The four sources are never merged. Chain storage says what an allowance *is*; the MultiBaas ledger
+says how it got there and is the only record of a grant that has since lapsed; the pool says what
+the venue is doing; the desk's own table says what was *asked for* and is never evidence of what
+was granted. Where they disagree the screen shows both, and where a chain has no MultiBaas
+deployment it says so rather than rendering an empty history as though nothing had happened.
+
 ## Layout
 
 ```
@@ -152,6 +209,12 @@ cd contracts && FORK=1 forge test --match-path 'test/*Fork*' -vv
 
 # deploy (only needed once; the addresses above are already live)
 script/deploy.sh all
+
+# deploy the v4 liquidity adapter (already live at the addresses above)
+bun run packages/sdk/scripts/deploy-liquidity.ts
+
+# the liquidity writ end to end: client signs, a DIFFERENT key provides the liquidity, client exits
+bun run packages/sdk/scripts/liquidity-demo.ts --chain BaseSepolia --size 1
 
 # the full lifecycle, eight stages, against the live testnets
 set -a && . ./.env && set +a

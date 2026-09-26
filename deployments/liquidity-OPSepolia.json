@@ -1,0 +1,7 @@
+{
+  "chain": "OPSepolia",
+  "address": "0x012a12367ceeb9e4ead98803d8019913ca80c3c2",
+  "crossPermit": "0x659C6F027FC4F6b2fF7A18dF1e3C3ec78a99de1B",
+  "poolManager": "0xf7F5aB3DcA35e17dE187b459159BC643853B3c67",
+  "tx": "0x50276b6b49435dcd20542aa2ffdf41679674512faf785ede8714b799b244adf5"
+}

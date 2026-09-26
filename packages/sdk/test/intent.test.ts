@@ -8,7 +8,9 @@ import {
   IntentError,
   fromWire,
   intentId,
+  SIGNING_CHAIN_ID,
   TIMESTAMP_LAG,
+  intentTypedData,
   prepareIntent,
   toWire,
   validateIntent,
@@ -232,5 +234,24 @@ describe("the signed ordering timestamp", () => {
     }).intent;
 
     expect(two.timestamp).toBeGreaterThan(one.timestamp);
+  });
+});
+
+/**
+ * The wallet is asked to sign on `SIGNING_CHAIN_ID`, and the contract only accepts a digest built
+ * over the chain id its own domain pins. If the two ever drift apart every signature this product
+ * collects is silently unverifiable, so they are asserted equal here rather than left to review.
+ */
+describe("signing domain", () => {
+  test("the exported signing chain is the one the domain is built with", () => {
+    const typed = intentTypedData(XP, {
+      owner: OWNER.address,
+      salt: ("0x" + "11".repeat(32)) as Hex,
+      deadline: NOW + 3600,
+      timestamp: NOW,
+      root: ("0x" + "22".repeat(32)) as Hex,
+    });
+    expect(typed.domain.chainId).toBe(SIGNING_CHAIN_ID);
+    expect(SIGNING_CHAIN_ID).toBe(1);
   });
 });

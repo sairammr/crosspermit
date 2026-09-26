@@ -14,6 +14,9 @@
   color: var(--text);
   background: var(--bg);
   overflow-x: clip;
+  /* One pairing for the whole page: Geist for anything read as prose, IBM Plex Mono wherever a
+     number, an address or a label has to line up. Archivo is left to the desk at /app. */
+  font-family: var(--font-screen), var(--sans);
 }
 
 .lp .dcanvas {
@@ -48,18 +51,18 @@
 }
 
 .lp h2 {
-  font-size: clamp(30px, 4.4vw, 56px);
-  line-height: 1.02;
+  font-size: clamp(30px, 3.6vw, 46px);
+  line-height: 1.12;
   letter-spacing: -0.03em;
-  font-weight: 800;
+  font-weight: 500;
   margin: 0;
 }
 
 .lp h3 {
   font-size: 20px;
-  line-height: 1.15;
-  letter-spacing: -0.015em;
-  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  font-weight: 500;
   margin: 0;
 }
 
@@ -68,105 +71,119 @@
 }
 
 .lp .lede {
-  font-size: 18px;
-  line-height: 1.5;
-  color: var(--muted);
-  max-width: 56ch;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--ink-3);
+  max-width: 48ch;
 }
 
 /* ---------- top rail ---------- */
 
+/* The rail is absent over the hero and arrives once the hero is behind you. GSAP owns the
+   transform; everything here is the look it arrives with. */
 .lp .rail {
   position: fixed;
   inset: 0 0 auto 0;
   z-index: 40;
-  border-bottom: 1px solid transparent;
-  transition: background 200ms ease, border-color 200ms ease;
-}
-.lp .rail.stuck {
-  background: color-mix(in srgb, var(--bg) 90%, transparent);
-  backdrop-filter: blur(10px);
-  border-bottom-color: var(--line);
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  backdrop-filter: blur(14px) saturate(140%);
+  border-bottom: 1px solid var(--line);
+  /* No drop shadow. The rail sits translated off the top of the viewport until it is wanted, and a
+     shadow attached to it paints a dark strip along the very top edge of the hero the whole time. */
 }
 .lp .rail-in {
   max-width: var(--maxw);
   margin: 0 auto;
-  padding: 12px 24px;
-  display: flex;
+  padding: 10px 24px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
+  gap: 24px;
 }
-.lp .brandmark {
+.lp .rail-nav {
+  display: flex;
+  gap: 2px;
+  justify-self: center;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.lp .rail-nav::-webkit-scrollbar {
+  display: none;
+}
+.lp .rail-nav a {
+  position: relative;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-decoration: none;
+  padding: 8px 12px;
+  border-radius: 3px;
+  white-space: nowrap;
+  transition:
+    color 140ms ease,
+    background 140ms ease;
+}
+.lp .rail-nav a:hover {
+  color: var(--text);
+  background: var(--panel-2);
+  text-decoration: none;
+}
+/* The section you are actually in, marked by the accent rather than by a colour change alone. */
+.lp .rail-nav a[data-current="true"] {
+  color: var(--text);
+}
+.lp .rail-nav a[data-current="true"]::after {
+  content: "";
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 2px;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 2px;
+}
+.lp .rail .btn .cap {
+  height: 34px;
+  padding: 0 16px;
+  font-size: 13px;
+}
+@media (max-width: 860px) {
+  .lp .rail-nav {
+    display: none;
+  }
+  .lp .rail-in {
+    grid-template-columns: auto auto;
+    justify-content: space-between;
+  }
+}
+
+/* The hero carries its own mark, because the rail is not there yet. */
+.lp .hero-brand {
+  color: var(--text);
+  position: absolute;
+  top: 26px;
+  left: 24px;
+  z-index: 3;
   display: flex;
   align-items: center;
   gap: 9px;
-  font-weight: 800;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  font-size: 18px;
+}
+.lp .brandmark {
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-weight: 600;
   letter-spacing: -0.03em;
   font-size: 18px;
 }
 .lp .brandmark svg {
   display: block;
-}
-
-/* ---------- buttons ---------- */
-
-.lp .btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  font-family: var(--mono);
-  font-size: 12px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  font-weight: 500;
-  height: 44px;
-  padding: 0 20px;
-  border-radius: 4px;
-  border: 1px solid var(--text);
-  background: var(--text);
-  color: var(--bg);
-  cursor: pointer;
-  text-decoration: none;
-  transition: background 140ms cubic-bezier(0.2, 0.6, 0.3, 1), border-color 140ms, transform 140ms, color 140ms;
-}
-.lp .btn:hover {
-  background: #353532;
-  border-color: #353532;
-  text-decoration: none;
-}
-.lp .btn:active {
-  transform: translateY(1px);
-}
-.lp .btn-action {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #16120f;
-}
-.lp .btn-action:hover {
-  background: #ff6a2a;
-  border-color: #ff6a2a;
-}
-/* A disabled call to action has to stop looking like a call to action. Without this the sign
-   button stays full accent while it is refusing to do anything. */
-.lp .btn[disabled],
-.lp .btn[disabled]:hover {
-  background: var(--panel-2);
-  border-color: var(--line);
-  color: var(--dim);
-  cursor: not-allowed;
-  transform: none;
-}
-.lp .btn-ghost {
-  background: transparent;
-  color: var(--muted);
-  border-color: var(--line);
-}
-.lp .btn-ghost:hover {
-  background: var(--panel-2);
-  color: var(--text);
-  border-color: var(--dim);
 }
 
 /* ---------- hero ---------- */
@@ -177,74 +194,136 @@
   display: grid;
   grid-template-rows: 1fr auto;
   isolation: isolate;
-  overflow: hidden;
+  /* Open at the bottom so the cloud bank hangs into the next section; the page clips the sides. */
+  overflow: visible;
+  z-index: 3;
 }
 .lp .hero-bg {
   position: absolute;
-  inset: 0;
+  /* The photograph is a band of ground at the foot of the hero rather than a backdrop behind it:
+     the machine stands on landscape, and the first screen above it stays paper. The band hangs
+     180px past the hero so its lower fade finishes inside the next section, never on the seam. */
+  left: 0;
+  right: 0;
+  /* Lifted 12svh off the floor of the hero: the ground reads as horizon the machine stands in
+     front of, not as a strip pinned to the bottom of the window. */
+  bottom: calc(22svh - 180px);
+  height: calc(clamp(240px, 34svh, 380px) + 180px);
   z-index: -2;
-  background: var(--bg);
+  overflow: hidden;
+  background: transparent;
 }
+/* Taller than the band and hung above it: GSAP slides this down by 12% of its own height on
+   scroll, and the slack overhead is what keeps the top edge covered for the whole travel. */
 .lp .hero-bg img {
   position: absolute;
-  inset: auto 0 0 0;
+  left: 0;
+  right: 0;
+  top: -20%;
   width: 100%;
-  height: 38%;
+  height: 140%;
   object-fit: cover;
-  /* The photograph is mostly its own white sky; anchoring to the bottom is what keeps the moss
-     in frame instead of cropping to an empty rectangle. */
-  object-position: center bottom;
+  /* The lower half of the photograph is the ground; that is the part the band is here to show. */
+  object-position: center 78%;
   display: block;
+  opacity: 0.85;
 }
-/* The photograph's own sky is pure white and the page is paper; left alone they meet on a visible
-   line. A short gradient closes the colour gap and the dither strip on top of it turns what is
-   left of the join into grain. */
+/* The moss, laid over the hillside and left a little open so the hill still shows through. */
+.lp .hero-bg .hero-moss {
+  object-position: center bottom;
+  opacity: 1;
+}
+/* The band's lower edge has to leave as quietly as its top one, so the last stretch washes to
+   paper well before the box ends and the next section inherits plain background. */
 .lp .hero-bg::after {
   content: "";
   position: absolute;
-  inset: auto 0 38% 0;
-  height: 13%;
-  background: linear-gradient(to bottom, var(--bg), color-mix(in srgb, var(--bg) 0%, transparent));
+  inset: 0;
+  background-image: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--bg) 0%, transparent) 0%,
+    color-mix(in srgb, var(--bg) 45%, transparent) 40%,
+    var(--bg) 78%,
+    var(--bg) 100%
+  );
+  background-size: 100% 260px;
+  background-position: bottom;
+  background-repeat: no-repeat;
 }
-.lp .hero-grain {
+/* Cloud banks on either flank, on the top layer: they pass in front of the machine, and each
+   throws a shadow onto the moss below it. */
+.lp .hero-cloud {
   position: absolute;
-  inset: auto 0 38% 0;
-  height: 14%;
-  z-index: -1;
+  z-index: 4;
+  bottom: -120px;
+  width: 62vw;
+  max-width: 900px;
+  height: auto;
+  pointer-events: none;
+  opacity: 0.58;
+  filter: brightness(1.12) contrast(1.22) drop-shadow(0 36px 34px rgba(23, 23, 23, 0.3));
+}
+.lp .hero-cloud.l {
+  left: -18vw;
+}
+.lp .hero-cloud.l2 {
+  left: -6vw;
+  bottom: -170px;
+  width: 44vw;
+  transform: scaleX(-1);
+}
+.lp .hero-cloud.r {
+  right: -16vw;
+  bottom: -140px;
+  width: 66vw;
+}
+.lp .hero-cloud.r2 {
+  right: 4vw;
+  bottom: -190px;
+  width: 40vw;
+  transform: scaleX(-1);
+}
+.lp .hero-cloud.c {
+  left: 50%;
+  bottom: -220px;
+  width: 54vw;
+  transform: translateX(-50%);
+  opacity: 0.56;
 }
 
+/* One thing in the middle of the screen. */
 .lp .hero-in {
   position: relative;
-  max-width: var(--maxw);
-  margin: 0 auto;
-  padding: 92px 24px 0;
   width: 100%;
-  display: grid;
-  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
-  gap: 32px;
-  align-items: start;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
 }
-.lp .hero h1 {
-  margin: 0;
-  font-size: clamp(36px, 5vw, 68px);
-  line-height: 0.96;
-  letter-spacing: -0.035em;
-  font-weight: 800;
+/* The name, set in dots, standing over the machine. */
+.lp .hero-word {
+  position: relative;
+  z-index: 2;
+  margin-top: 8vh;
+  will-change: transform, opacity;
 }
-.lp .hero h1 u {
-  text-decoration: none;
-  box-shadow: inset 0 -0.09em 0 var(--accent);
-}
-.lp .hero h1 b {
-  color: var(--accent);
+.lp .hero-word svg {
+  display: block;
+  width: min(74vw, 640px);
+  height: auto;
 }
 
-/* the floating machine */
+/* ---------- the machine ----------
+   It does not move around the page any more. It stands in one place and turns: the drag scrubs a
+   turntable rendered offline, so the rotation is the real geometry lit from the real angle rather
+   than a flat image being sheared. Three wrappers, one transform channel each — the entrance, the
+   idle bob and the scroll parallax — because none of them may overwrite another. */
 .lp .cpu-scroll {
   position: relative;
-  justify-self: center;
-  width: min(100%, 560px);
-  margin-top: -18px;
+  width: min(72vw, 440px);
+  margin-top: 6vh;
+  z-index: 2;
 }
 .lp .cpu-enter {
   will-change: transform, opacity;
@@ -253,73 +332,67 @@
   position: relative;
   aspect-ratio: 1;
 }
-.lp .cpu-float img {
+.lp .cpu-stage {
   position: absolute;
   inset: 0;
+  cursor: grab;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  filter: drop-shadow(0 34px 42px rgba(23, 23, 23, 0.34));
+}
+.lp .cpu-stage:active {
+  cursor: grabbing;
+}
+.lp .cpu-stage canvas {
+  display: block;
   width: 100%;
   height: 100%;
-  object-fit: contain;
-  display: block;
-  filter: drop-shadow(0 38px 44px rgba(23, 23, 23, 0.26));
-}
-.lp .cpu-clean {
-  opacity: 0;
-}
-/* The Apple II's screen, lit from inside by the page rather than by the render. */
-.lp .cpu-screen {
-  position: absolute;
-  left: 27.5%;
-  top: 19.5%;
-  width: 34.5%;
-  height: 27%;
-  transform: perspective(620px) rotateY(-15.5deg) rotateX(2.2deg) skewY(2.6deg);
-  transform-origin: 0 50%;
-  background: #0d1a10;
-  color: #7dff9b;
-  font-family: var(--mono);
-  font-size: clamp(5px, 0.96vw, 9px);
-  line-height: 1.5;
-  padding: 5% 5% 0;
-  overflow: hidden;
-  opacity: 0;
-  text-shadow: 0 0 6px rgba(125, 255, 155, 0.65);
-}
-.lp .cpu-screen i {
-  font-style: normal;
-  color: #f4a15a;
-}
-.lp .cpu-screen .cursor {
-  display: inline-block;
-  width: 0.6em;
-  height: 1em;
-  background: #7dff9b;
-  vertical-align: -0.12em;
-  animation: cpu-blink 1.1s steps(1) infinite;
-}
-@keyframes cpu-blink {
-  50% {
-    opacity: 0;
-  }
 }
 
-/* Over the photograph a hairline button disappears. The hero's own ghost variant keeps the paper
-   fill so both calls to action stay legible wherever the moss line happens to fall. */
-.lp .hero-cta .btn-ghost {
-  background: color-mix(in srgb, var(--bg) 88%, transparent);
+/* The hint, which retires itself the first time the machine is turned. */
+.lp .cpu-hint {
+  position: absolute;
+  left: 50%;
+  bottom: -5%;
+  transform: translateX(-50%);
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg) 80%, transparent);
   backdrop-filter: blur(6px);
-  color: var(--text);
-  border-color: var(--bg);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+  transition: opacity 400ms ease;
+  pointer-events: none;
 }
-.lp .hero-cta .btn-ghost:hover {
-  background: var(--bg);
+.lp .cpu-hint::before,
+.lp .cpu-hint::after {
+  content: "";
+  width: 16px;
+  height: 1px;
+  background: currentColor;
+  opacity: 0.5;
+}
+.lp .cpu-stage.turned ~ .cpu-hint {
+  opacity: 0;
 }
 
 .lp .hero-foot {
   position: relative;
-  /* This band sits over the darkest part of the photograph, so it carries its own contrast
-     rather than inheriting the page's ink. */
-  color: #f2f1ee;
-  text-shadow: 0 1px 4px rgba(16, 16, 16, 0.55);
+  /* Ink on paper, with a paper halo: the ground under this band is a light halftone, so the old
+     light-on-dark treatment disappeared into it entirely. */
+  color: var(--ink-2, var(--muted));
+  text-shadow:
+    0 0 6px var(--bg),
+    0 0 3px var(--bg),
+    0 1px 0 var(--bg);
   max-width: var(--maxw);
   margin: 0 auto;
   width: 100%;
@@ -342,7 +415,7 @@
   display: block;
   width: 1px;
   height: 34px;
-  background: #f2f1ee;
+  background: var(--muted);
   transform-origin: top;
   animation: cue 2.2s cubic-bezier(0.2, 0.6, 0.3, 1) infinite;
 }
@@ -462,7 +535,7 @@
   font-size: clamp(38px, 5vw, 64px);
   line-height: 0.92;
   letter-spacing: -0.03em;
-  font-weight: 800;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
 .lp .figure b {
@@ -641,13 +714,6 @@
 }
 
 @media (max-width: 940px) {
-  .lp .hero-in {
-    grid-template-columns: minmax(0, 1fr);
-    padding-top: 96px;
-  }
-  .lp .cpu-scroll {
-    width: min(100%, 420px);
-  }
   .lp .g3,
   .lp .g4 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -659,15 +725,386 @@
   .lp .g4 {
     grid-template-columns: minmax(0, 1fr);
   }
-  .lp .cpu-screen {
-    font-size: 6px;
-  }
 }
 @media (prefers-reduced-motion: reduce) {
   .lp .cue i {
     animation: none;
   }
-  .lp .cpu-screen .cursor {
-    animation: none;
+}
+
+/* ---------- institutional ----------
+   The pitch to a desk running other people's money, set as two instrument cards beside the ledger
+   horse. The dark card is a display panel: dot grid, one figure, a bar of lit dots. The light card
+   is a moulded gauge: a hatched column that fills in signal, and a reading beside it. */
+.lp .inst {
+  border-top: 0;
+  /* The hero's land band and cloud bank hang ~220px into this section; the copy starts below them. */
+  padding-top: 300px;
+}
+.lp .inst-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+  gap: 48px;
+  align-items: center;
+}
+.lp .inst-horse {
+  display: grid;
+  place-items: center end;
+  transform: translateX(9vw);
+}
+.lp .inst-horse svg {
+  width: 120%;
+  max-width: 720px;
+  height: auto;
+}
+/* Lighter than the page's ink: it stands behind the pitch, not in front of it. */
+.lp .inst-horse circle:not([fill="var(--accent)"]) {
+  fill: #a09d96;
+}
+.lp .bento {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  margin-top: 40px;
+}
+.lp .card-dark {
+  position: relative;
+  background: #171717;
+  color: var(--bg);
+  border: 1px solid #2c2b29;
+  border-radius: 22px;
+  padding: 26px 26px 22px;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.1) 1.1px, transparent 1.3px);
+  background-size: 11px 11px;
+  box-shadow: 0 24px 50px rgba(23, 23, 23, 0.22);
+}
+.lp .card-dark .big {
+  font-size: clamp(72px, 8vw, 128px);
+  font-weight: 800;
+  letter-spacing: -0.06em;
+  line-height: 0.88;
+  margin-top: 10px;
+}
+.lp .dotbars {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 150px;
+  margin-top: 44px;
+}
+.lp .dotbars i {
+  flex: 1;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 3px;
+}
+.lp .dotbars b {
+  display: block;
+  height: 4px;
+  border-radius: 1px;
+  background: var(--accent);
+}
+.lp .card-impact {
+  border: 1.5px solid var(--text);
+  border-radius: 22px;
+  background: var(--bg);
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  box-shadow: 0 24px 50px rgba(23, 23, 23, 0.18);
+}
+.lp .card-impact .head {
+  display: grid;
+  grid-template-columns: 1fr 92px;
+  border-bottom: 1.5px solid var(--text);
+}
+.lp .card-impact h3 {
+  font-size: clamp(30px, 3vw, 42px);
+  letter-spacing: -0.04em;
+  font-weight: 500;
+  padding: 20px 22px;
+}
+.lp .card-impact .sq {
+  border-left: 1.5px solid var(--text);
+  background: var(--text);
+  display: grid;
+  place-items: center;
+}
+.lp .card-impact .body {
+  display: grid;
+  grid-template-columns: 112px 1fr;
+  min-height: 300px;
+}
+.lp .card-impact .col {
+  display: flex;
+  flex-direction: column;
+  border-right: 1.5px solid var(--text);
+}
+.lp .card-impact .hatch {
+  flex: 0 0 34%;
+  background: repeating-linear-gradient(135deg, var(--text) 0 2px, var(--accent) 2px 10px);
+}
+.lp .card-impact .fill {
+  flex: 1;
+  background: var(--accent);
+  padding: 18px 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: flex-start;
+  gap: 10px;
+}
+.lp .card-impact .n {
+  font-size: 60px;
+  font-weight: 500;
+  letter-spacing: -0.05em;
+  line-height: 1;
+  color: var(--text);
+}
+.lp .card-impact .u {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--text);
+  color: var(--accent);
+  display: grid;
+  place-items: center;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+}
+.lp .card-impact .pane {
+  padding: 20px 22px 22px;
+  display: flex;
+  flex-direction: column;
+}
+.lp .card-impact .client {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--text);
+}
+.lp .card-impact h4 {
+  margin: auto 0 0;
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+.lp .card-impact .pane p {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+  margin-top: 8px;
+}
+@media (max-width: 960px) {
+  .lp .inst-grid,
+  .lp .bento {
+    grid-template-columns: 1fr;
   }
+  .lp .inst-horse {
+    order: -1;
+  }
+}
+
+/* ---------- the product band ----------
+   The strip is a rule-divided row of quoted figures set in dot type, and the slab under it is the
+   plain-language explanation of the product. Geist rather than Archivo throughout: the band is
+   instrumentation the reader studies, not a headline they glance at. */
+
+.lp .sim {
+  background: var(--panel);
+}
+
+/* -- the strip -- */
+
+.lp .dotstrip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(0, 0.9fr);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  overflow: hidden;
+}
+.lp .dotstrip .cell {
+  display: grid;
+  align-content: space-between;
+  gap: 28px;
+  padding: 22px 24px;
+  min-height: 190px;
+  border-left: 1px solid var(--line);
+}
+.lp .dotstrip .cell:first-child {
+  border-left: 0;
+}
+/* The mark line: the emblem at a coarse matrix beside the name of what produced the figure. */
+.lp .dotstrip .mark {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  letter-spacing: -0.01em;
+  color: var(--ink-3);
+}
+.lp .dotstrip .mark svg {
+  flex: none;
+}
+.lp .dotstrip .cap {
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--ink-3);
+  max-width: 24ch;
+}
+.lp .dotstrip svg[role="img"] {
+  display: block;
+}
+
+/* The last cell is the ask, not a reading: prose and one key. */
+.lp .dotstrip .cta {
+  background: var(--panel);
+  align-content: start;
+  gap: 18px;
+}
+.lp .dotstrip .cta p {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+
+/* Sentence case: on the landing these are buttons in a paragraph of prose, not console keys. The
+   desk at /app keeps the moulded mono cap; this only reaches the keys inside .lp. */
+.lp .btn .cap {
+  font-family: inherit;
+  font-size: 14px;
+  letter-spacing: -0.01em;
+  text-transform: none;
+  font-weight: 500;
+}
+
+/* -- the slab -- */
+
+.lp .sim-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 32px;
+  align-items: center;
+  margin-top: 64px;
+}
+.lp .sim-copy {
+  display: grid;
+  justify-items: start;
+  gap: 28px;
+}
+.lp .sim-h {
+  font-family: inherit;
+  font-size: clamp(30px, 3.6vw, 46px);
+  line-height: 1.12;
+  letter-spacing: -0.03em;
+  font-weight: 500;
+  margin: 0;
+}
+/* The lines the eye is meant to slide over sit back; the phrase that carries the claim stays ink. */
+.lp .sim-h .fade {
+  color: #a3a09a;
+}
+.lp .sim-lede {
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--ink-3);
+  max-width: 46ch;
+}
+
+/* The field: the emblem at a coarse matrix, held back to the weight of a watermark so the copy
+   still leads. Clipped rather than scaled down, so the dots stay the size they are in the strip. */
+.lp .sim-field {
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  min-height: 340px;
+}
+.lp .sim-field svg {
+  width: 120%;
+  max-width: 760px;
+  height: auto;
+}
+.lp .sim-field circle:not([fill="var(--accent)"]) {
+  fill: #c2bfb8;
+}
+
+@media (max-width: 1040px) {
+  .lp .dotstrip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .lp .dotstrip .cell:nth-child(odd) {
+    border-left: 0;
+  }
+  .lp .dotstrip .cell:nth-child(n + 3) {
+    border-top: 1px solid var(--line);
+  }
+}
+@media (max-width: 860px) {
+  .lp .sim-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .lp .sim-field {
+    min-height: 240px;
+  }
+}
+@media (max-width: 560px) {
+  .lp .dotstrip {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .lp .dotstrip .cell {
+    border-left: 0;
+    min-height: 0;
+  }
+  .lp .dotstrip .cell + .cell {
+    border-top: 1px solid var(--line);
+  }
+}
+
+/* ---------- stat cards ----------
+   The same reading the product band's strip takes: a label, a figure set in dot type, and the
+   sentence that says what the figure costs. One card per screen may carry the signal fill. */
+
+.lp .statcard {
+  display: grid;
+  align-content: start;
+  gap: 20px;
+  min-height: 190px;
+}
+.lp .statcard .figure {
+  font-size: 0;
+}
+.lp .statcard .lede {
+  align-self: end;
+}
+.lp .statcard.hot {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.lp .statcard.hot .label {
+  color: #16120f;
+  opacity: 0.7;
+}
+.lp .statcard.hot .lede {
+  color: #16120f;
+}
+/* On the signal fill the dots are ink; the accent full stop would vanish, so it goes ink too. */
+.lp .statcard.hot .figure circle {
+  fill: #16120f;
+}
+
+/* The dark card reads out in paper-coloured dots, with the brand's full stop still in signal. */
+.lp .card-dark .big circle:not([fill="var(--accent)"]) {
+  fill: var(--on-ink);
+}
+.lp .card-dark .big {
+  font-size: 0;
+}
+
+/* A strategy reading is a figure, so it is set the same way. */
+.lp .strat .n svg {
+  display: block;
 }

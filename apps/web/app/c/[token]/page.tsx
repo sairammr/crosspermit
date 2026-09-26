@@ -1,335 +1,576 @@
 "use client";
 
 /**
- * The client's side of an invitation.
+ * The client's side of an invitation: pick what the desk may touch, sign once.
  *
- * This page asks someone to sign one message that grants a desk spending authority on several
- * chains at once, so it is written to be read before it is signed: every per-chain bundle is
- * rendered in plain language, from values computed here, before the wallet is ever opened. A
- * signer who only sees an opaque merkle root in their wallet is trusting the page; the whole point
- * of computing the leaves client-side is that they do not have to.
+ * The desk only opened this link. Everything the grant is made of — which tokens on which chains,
+ * how much of each, how long it lives — is chosen here by the person who owns the assets, and is
+ * put on chain by their own wallet. Every figure on the sheet is read by this page from the chains
+ * themselves before the wallet opens, because a signer who sees only an opaque merkle root in
+ * their wallet is trusting this page to have told them the truth about what it means.
  */
 
 import { useParams } from "next/navigation";
 import { useMemo, useState } from "react";
-import { formatUnits } from "viem";
-import { useAccount, useReadContracts, useSignTypedData } from "wagmi";
+import { type Address, type Hex, formatUnits, parseAbi, parseUnits } from "viem";
+import { useAccount, useDisconnect, useReadContracts, useSignTypedData, useSwitchChain } from "wagmi";
 
-import { approveEntry, crossPermitAbi, prepareIntent, toWire } from "@crosspermit/sdk";
-import { CROSS_PERMIT, chainById } from "../../../src/config";
+import { SIGNING_CHAIN_ID, approveEntry, crossPermitAbi, prepareIntent, toWire } from "@crosspermit/sdk";
 import { type ClientMandate, linkMandate, useMandate } from "../../../src/clients";
+import { CHAINS, CROSS_PERMIT, type ChainInfo, chainById } from "../../../src/config";
 import { HorseMatrix } from "../../../src/dithergraph";
 import { postIntent, useIntentStream } from "../../../src/relayer";
+import { onSigningChain, openAppKit } from "../../../src/wagmi";
+import "../mandate.css";
+
+const tokenAbi = parseAbi([
+  "function balanceOf(address) view returns (uint256)",
+  "function symbol() view returns (string)",
+  "function name() view returns (string)",
+  "function decimals() view returns (uint8)",
+]);
+
+/** The expiries offered. A free-text hour field invites a typo that is only visible on chain. */
+const EXPIRIES = [
+  { hours: 24, label: "24 hours" },
+  { hours: 168, label: "7 days" },
+  { hours: 720, label: "30 days" },
+  { hours: 2160, label: "90 days" },
+  { hours: 8760, label: "1 year" },
+];
+
+const READS_PER_HOLDING = 5;
+
+/**
+ * Token marks, by the symbol the token's own contract reports.
+ *
+ * Keyed on the symbol rather than the address because the same asset has a different address on
+ * every chain, and these testnets run mock deployments of it. A symbol with no mark here falls
+ * back to its letters — inventing a logo for a token this app does not recognise would be the one
+ * way a wrong token could look right.
+ */
+const TOKEN_LOGOS: Record<string, string> = {
+  USDC: "/logos/usdc.png",
+};
+
+const short = (a: string, n = 6) => (a.length > 2 * n ? `${a.slice(0, n)}…${a.slice(-4)}` : a);
+const group = (n: string) => {
+  const [w, f] = n.split(".");
+  return f ? `${Number(w).toLocaleString("en-US")}.${f}` : Number(w).toLocaleString("en-US");
+};
+
+/** One token on one chain: the unit the client selects, and the unit a permit is written in. */
+type Holding = { key: string; chain: ChainInfo; token: Address };
+
+const HOLDINGS: Holding[] = CHAINS.flatMap((chain) =>
+  chain.tokens.map((token) => ({ key: `${chain.id}:${token.toLowerCase()}`, chain, token })),
+);
+
+// ---------- page ----------
 
 export default function InvitePage() {
   const params = useParams<{ token: string }>();
   const token = typeof params?.token === "string" ? params.token : undefined;
   const { state, reload } = useMandate(token);
 
-  return (
-    <div className="lp">
-      <header className="rail stuck">
-        <div className="rail-in">
-          <div className="brandmark">
-            <HorseMatrix cols={13} size={22} />
-            CrossPermit<span style={{ color: "var(--accent)" }}>.</span>
-          </div>
-          <span className="micro">Client mandate</span>
-        </div>
-      </header>
-
-      <main className="wrapx" style={{ paddingTop: 108, paddingBottom: 80, maxWidth: 860 }}>
-        {state.kind === "loading" && <p className="lede">Loading the mandate…</p>}
-
-        {state.kind === "missing" && (
-          <Note title="This link is not valid">
-            It may have been withdrawn by the desk, or mistyped. Nothing was signed and nothing was
-            granted. Ask whoever sent it for a new one.
-          </Note>
-        )}
-
-        {state.kind === "offline" && (
-          <Note title="Cannot reach the desk">
-            The relayer did not answer, so this mandate could not be read. Do not sign anything on a
-            page that could not load what it is asking you to sign — reload, or come back later.
-          </Note>
-        )}
-
-        {state.kind === "ok" && <Mandate client={state.client} token={token!} onLinked={reload} />}
-      </main>
-    </div>
-  );
+  if (state.kind === "loading") {
+    return (
+      <Sheet title="Mandate" label="Reading the link">
+        <Note title="Loading…" body="Fetching what you are being asked to sign." />
+      </Sheet>
+    );
+  }
+  if (state.kind === "missing") {
+    return (
+      <Sheet title="Mandate" label="This link is not valid">
+        <Note
+          title="Nothing to sign."
+          body="The link may have been withdrawn by the desk, or mistyped. Nothing was granted. Ask whoever sent it for a new one."
+        />
+      </Sheet>
+    );
+  }
+  if (state.kind === "offline") {
+    return (
+      <Sheet title="Mandate" label="Cannot reach the desk" action={{ label: "Retry", onClick: reload }}>
+        <Note
+          title="The relayer did not answer."
+          body="Do not sign anything on a page that could not load what it is asking you to sign. Retry, or come back later."
+        />
+      </Sheet>
+    );
+  }
+  return <Grant client={state.client} token={token!} onLinked={reload} />;
 }
 
-function Note({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="mod">
-      <span className="label">Notice</span>
-      <h3 style={{ marginTop: 10 }}>{title}</h3>
-      <p className="lede" style={{ fontSize: 15, marginTop: 10 }}>
-        {children}
-      </p>
-    </div>
-  );
-}
+// ---------- the grant ----------
 
-function Mandate({ client, token, onLinked }: { client: ClientMandate; token: string; onLinked: () => void }) {
-  const { address, isConnected } = useAccount();
+function Grant({ client, token, onLinked }: { client: ClientMandate; token: string; onLinked: () => void }) {
+  const { address, isConnected, chainId } = useAccount();
+  const { disconnect } = useDisconnect();
+  const { switchChainAsync } = useSwitchChain();
   const { signTypedDataAsync } = useSignTypedData();
-  const [intentId, setIntentId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [amount, setAmount] = useState("");
+  const [hours, setHours] = useState(client.ttlHours || 720);
+
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [signature, setSignature] = useState<Hex | null>(null);
+  const [intentId, setIntentId] = useState<string | null>(null);
+  const [linkError, setLinkError] = useState<string | null>(null);
   const { status } = useIntentStream(intentId);
 
-  const cap = BigInt(client.capUnits);
-  // Only chains this dashboard actually knows how to address. A mandate naming a chain that has no
-  // deployment here is shown as excluded rather than quietly dropped from the signature.
-  const legs = client.chainIds.map((id) => ({ id, chain: chainById(id) }));
-  const known = legs.filter((l) => l.chain).map((l) => l.chain!);
-  const unknown = legs.filter((l) => !l.chain).map((l) => l.id);
-
-  // An allowance entry that carries an expiry is an INCREASE, not a set: the contract adds the
-  // delta to whatever is already outstanding. So the cap alone is not what the client ends up
-  // granting, and a page that showed only the cap would be understating the authority it is asking
-  // for whenever anything is already open to the same spender. Read the current figure and show
-  // both.
-  const current = useReadContracts({
-    contracts: known.map((c) => ({
-      address: CROSS_PERMIT,
-      abi: crossPermitAbi,
-      functionName: "allowance" as const,
-      args: [address as `0x${string}`, c.token, c.router],
-      chainId: c.id,
-    })),
-    query: { enabled: Boolean(address) && known.length > 0 },
+  // Five reads per holding, batched per chain: balance, the allowance already open to the router,
+  // symbol, name, decimals. `allowance` matters because a permit entry with an expiry is an
+  // INCREASE — the amount alone understates what the client ends up granting whenever anything is
+  // already outstanding. Name and symbol are read rather than written into the config, because a
+  // label typed into this app is the one thing on the screen the chain cannot contradict.
+  const reads = useReadContracts({
+    contracts: HOLDINGS.flatMap((h) => [
+      { address: h.token, abi: tokenAbi, functionName: "balanceOf", args: [address!], chainId: h.chain.id },
+      { address: CROSS_PERMIT, abi: crossPermitAbi, functionName: "allowance", args: [address!, h.token, h.chain.router], chainId: h.chain.id },
+      { address: h.token, abi: tokenAbi, functionName: "symbol", chainId: h.chain.id },
+      { address: h.token, abi: tokenAbi, functionName: "name", chainId: h.chain.id },
+      { address: h.token, abi: tokenAbi, functionName: "decimals", chainId: h.chain.id },
+    ]),
+    query: { enabled: Boolean(address) },
   });
 
-  const outstanding = (i: number): bigint | null => {
-    const r = current.data?.[i];
-    return r?.status === "success" ? ((r.result as readonly [bigint, number, number])[0] ?? null) : null;
+  const info = (i: number) => {
+    const at = (k: number): unknown => {
+      const r = reads.data?.[i * READS_PER_HOLDING + k];
+      return r?.status === "success" ? r.result : undefined;
+    };
+    const decimals = typeof at(4) === "number" ? (at(4) as number) : 6;
+    const fmt = (v: unknown) => (typeof v === "bigint" ? formatUnits(v, decimals) : null);
+    return {
+      decimals,
+      balance: fmt(at(0)),
+      open: fmt((at(1) as readonly [bigint, number, number] | undefined)?.[0]),
+      symbol: (at(2) as string | undefined) ?? null,
+      name: (at(3) as string | undefined) ?? null,
+    };
   };
 
+  const chosen = HOLDINGS.map((h, i) => ({ ...h, i })).filter((h) => picked.has(h.key));
+
+  /** The amount in each token's own base units. A shared figure, read per token, never assumed. */
+  const unitsFor = (i: number) => {
+    try {
+      const u = parseUnits((amount || "0").trim(), info(i).decimals);
+      return u > 0n ? u : null;
+    } catch {
+      return null;
+    }
+  };
+  const amountValid = amount.trim() !== "" && unitsFor(0) !== null;
+  const ready = amountValid && chosen.length > 0;
+
   const preview = useMemo(() => {
-    if (!address || known.length === 0) return null;
+    if (!address || !ready) return null;
     try {
       const now = Math.floor(Date.now() / 1000);
-      const expiry = now + client.ttlHours * 3600;
+      const expiry = now + hours * 3600;
+      // One leg per chain, one permit entry per token chosen on it. Two tokens on the same chain
+      // are one leg with two entries, not two legs — one signature, one transaction per chain.
+      const byChain = new Map<number, { chainId: number; permits: ReturnType<typeof approveEntry>[] }>();
+      for (const h of chosen) {
+        const units = unitsFor(h.i);
+        if (!units) return null;
+        const leg = byChain.get(h.chain.id) ?? { chainId: h.chain.id, permits: [] };
+        leg.permits.push(approveEntry(h.token, h.chain.router, units, expiry));
+        byChain.set(h.chain.id, leg);
+      }
       return prepareIntent({
         crossPermit: CROSS_PERMIT,
         owner: address,
         now,
+        // The signature itself lapses in an hour if it is never submitted; the allowance it creates
+        // lives for the expiry chosen above.
         ttl: 3600,
-        chains: known.map((c) => ({
-          chainId: c.id,
-          permits: [approveEntry(c.token, c.router, cap, expiry)],
-        })),
+        chains: [...byChain.values()],
       });
     } catch {
       return null;
     }
-    // `known` is derived from client.chainIds, so the id list is the real dependency.
-  }, [address, client.chainIds.join(","), client.ttlHours, client.capUnits]);
+    // `chosen` is derived from the picked set, so the set is the real dependency.
+  }, [address, amount, hours, ready, [...picked].sort().join(","), reads.data]);
 
-  async function sign() {
-    if (!preview || !address) return;
+  async function grant() {
+    if (!preview || !address || busy) return;
     setBusy(true);
     setError(null);
     try {
-      const signature = await signTypedDataAsync(preview.typedData as never);
-      const { status: code, body } = await postIntent(toWire({ ...preview.intent, signature }));
+      // The wallet will not sign a domain pinned to a chain it is not on, and it does not switch
+      // itself, so ask it to move first. No transaction follows — the signature is spent on the
+      // chains it names, never on the signing domain's chain.
+      await onSigningChain(chainId, switchChainAsync);
+      const sig = await signTypedDataAsync({ ...preview.typedData, chainId: SIGNING_CHAIN_ID } as never);
+      const { status: code, body } = await postIntent(toWire({ ...preview.intent, signature: sig }));
       if (code >= 400) throw new Error(`${body.code ?? code}: ${body.error ?? "rejected"}`);
       const id = String(body.intentId);
+      setSignature(sig);
       setIntentId(id);
-
-      // Binding is what turns an invitation into a client on the desk's screen. If it fails the
-      // permission is still live on chain — say that, rather than implying nothing happened.
-      const bound = await linkMandate(token, address, id);
-      if (!bound.ok) {
-        setError(
-          `Your permission was submitted, but the desk could not record it against this link (${bound.error}). ` +
-            `Send them the intent id above.`,
-        );
-      }
+      // Binding turns an invitation into a client on the desk's screen, and tells them the terms
+      // this client chose. If it fails the permission is still live on chain — say that, rather
+      // than implying nothing happened.
+      const bound = await linkMandate(token, address, id, {
+        capUnits: (unitsFor(chosen[0]!.i) ?? 0n).toString(),
+        ttlHours: hours,
+        chainIds: [...new Set(chosen.map((h) => h.chain.id))],
+      });
+      if (!bound.ok) setLinkError(`Submitted on chain, but the desk could not record it (${bound.error}). Send them the intent id.`);
       onLinked();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(e instanceof Error ? e.message.split("\n")[0]! : String(e));
     } finally {
       setBusy(false);
     }
   }
 
+  // ---- withdrawn ----
   if (client.status === "revoked") {
     return (
-      <Note title="This invitation was withdrawn">
-        {client.owner
-          ? "A permission was already signed against it. Withdrawing the link does not revoke that — to close it, ask the desk for a cross-chain LOCK, or revoke from your own wallet."
-          : "Nothing was ever signed against it. Ask the desk for a new link."}
-      </Note>
+      <Sheet title={client.name} label="Link withdrawn">
+        <Note
+          title="This link was withdrawn by the desk."
+          body={
+            client.owner
+              ? "A permission was already signed against it. Withdrawing the link does not revoke that — ask the desk for a cross-chain LOCK, or revoke from your wallet."
+              : "Nothing was ever signed against it. Ask the desk for a new link."
+          }
+        />
+      </Sheet>
     );
   }
 
+  // ---- already signed, by someone (maybe you) ----
   if (client.status === "active" && !intentId) {
+    const mine = Boolean(address && client.owner && address.toLowerCase() === client.owner.toLowerCase());
     return (
-      <>
-        <Head client={client} />
-        <div className="mod" style={{ marginTop: 16 }}>
-          <span className="label">Already signed</span>
-          <h3 style={{ marginTop: 10 }}>This mandate is live</h3>
-          <div style={{ marginTop: 16 }}>
-            <Row k="Signed by" v={client.owner ?? "—"} />
-            <Row k="Intent" v={client.intentId ?? "—"} />
-            <Row k="Signed at" v={client.linkedAt ? new Date(client.linkedAt).toLocaleString() : "—"} />
-          </div>
-          <p className="lede" style={{ fontSize: 14, marginTop: 16 }}>
-            You keep custody throughout. The desk can spend up to the cap above and no further, and
-            the authority expires on its own.
-          </p>
-        </div>
-      </>
+      <Sheet title={client.name} label="Signed">
+        <dl className="kv">
+          <Row k="Signed by" v={client.owner ? short(client.owner) : "—"} m={mine ? "your connected wallet" : address ? `you are connected as ${short(address)}` : "connect a wallet to check"} />
+          <Row k="Granted" v={client.capUnits ? `${group(formatUnits(BigInt(client.capUnits), 6))} per token` : "—"} m={client.chainIds.map((id) => chainById(id)?.name ?? id).join(" · ")} />
+          <Row k="Expires" v={client.ttlHours ? `${client.ttlHours}h after signing` : "—"} m="nothing more is asked of you" />
+          <Row k="Intent" v={client.intentId ? short(client.intentId) : "—"} m="one signature, on every chain" />
+        </dl>
+      </Sheet>
     );
   }
 
-  return (
-    <>
-      <Head client={client} />
-
-      <div className="mod" style={{ marginTop: 16 }}>
-        <span className="label">What you are about to sign</span>
-        <h3 style={{ marginTop: 10 }}>
-          One message. {known.length} {known.length === 1 ? "chain" : "chains"}.
-        </h3>
-        <p className="lede" style={{ fontSize: 15, marginTop: 10 }}>
-          A single EIP-712 signature over a merkle root of the bundles below. Each line is a separate
-          allowance on its own chain; nothing outside these lines can be granted by this signature.
-        </p>
-
-        <div style={{ marginTop: 20, display: "grid", gap: 12 }}>
-          {known.map((c, i) => {
-            const have = outstanding(i);
+  // ---- signed just now: each chain landing ----
+  if (intentId) {
+    const done = status?.done ?? false;
+    const legRows = status?.legs ?? [...new Set(chosen.map((h) => h.chain.id))].map((chainId) => ({ chainId, status: "pending" as const, txHash: null, error: null }));
+    return (
+      <Sheet
+        title={client.name}
+        label={done ? (status?.ok ? "Granted" : "Partly granted") : "Submitting"}
+        action={{ label: done ? (status?.ok ? "Granted" : "Some chains failed") : "Submitting…", disabled: true }}
+        foot={linkError ?? "One signature, landing on each chain. You can close this page once every row settles."}
+        footTone={linkError ? "err" : undefined}
+      >
+        <dl className="kv">
+          {legRows.map((leg) => {
+            const c = chainById(leg.chainId);
+            const tone = leg.status === "confirmed" ? "ok" : leg.status === "failed" ? "bad" : "";
             return (
-              <div className="mod-flat" key={c.id} style={{ padding: 16 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
-                  <h3 style={{ fontSize: 16 }}>{c.name}</h3>
-                  <span className="badge badge-out">{c.id}</span>
-                </div>
-                <div style={{ marginTop: 12 }}>
-                  <Row k="Token" v={c.token} />
-                  <Row k="Spender" v={`${c.router} — Uniswap Universal Router`} />
-                  <Row k="Already granted here" v={have === null ? "—" : formatUnits(have, 6)} />
-                  <Row k="This adds" v={`${formatUnits(cap, 6)} (6dp)`} />
-                  <Row
-                    k="They will be able to spend"
-                    v={have === null ? `${formatUnits(cap, 6)} plus anything already open` : formatUnits(have + cap, 6)}
-                  />
-                  <Row k="Expires" v={`${client.ttlHours}h from signing`} />
-                </div>
-              </div>
+              <Row
+                key={leg.chainId}
+                k={c?.name ?? String(leg.chainId)}
+                v={<span className={`tag ${tone}`}>{leg.status}</span>}
+                m={
+                  leg.txHash && c ? (
+                    <a href={`${c.explorer}/tx/${leg.txHash}`} target="_blank" rel="noreferrer">
+                      {short(leg.txHash)} ↗
+                    </a>
+                  ) : (
+                    (leg.error ?? "waiting for the relayer")
+                  )
+                }
+              />
             );
           })}
-        </div>
+          <Row
+            k="Signature"
+            v={signature ? short(signature) : "—"}
+            m={`root ${short(status?.root ?? preview?.intent.root ?? "—")} · intent ${short(intentId)}`}
+          />
+        </dl>
+      </Sheet>
+    );
+  }
 
-        {unknown.length > 0 && (
-          <p className="lede" style={{ fontSize: 14, marginTop: 16, color: "var(--bad)" }}>
-            The desk also asked for {unknown.join(", ")}, which this page has no deployment for. Those
-            chains are <strong>not</strong> in the signature below.
-          </p>
-        )}
+  // ---- not connected: one card, one button ----
+  if (!isConnected || !address) {
+    return (
+      <Sheet
+        title={client.name}
+        label="Grant access"
+        lede={client.mandate || "The desk sent you this link. Connect the wallet that holds the assets and you will see everything it can see: which tokens, on which chains, and what is already open. Nothing is signed by connecting."}
+        action={{ label: "Connect wallet", onClick: () => openAppKit() }}
+        foot="Nothing is signed at this step. The desk cannot move anything until you choose what to grant and sign it yourself."
+      >
+        <ul className="preview-chains">
+          {CHAINS.map((c) => (
+            <li key={c.id}>
+              <ChainMark chain={c} />
+              <span className="name">{c.name}</span>
+              <span className="meta">{c.tokens.length} token{c.tokens.length === 1 ? "" : "s"}</span>
+            </li>
+          ))}
+        </ul>
+      </Sheet>
+    );
+  }
 
-        <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginTop: 24 }}>
-          {/* AppKit's own element: the connect button and the account modal. */}
-          <appkit-button balance="hide" />
-          <button className="btn btn-action" disabled={!isConnected || !preview || busy} onClick={sign}>
-            {busy ? "signing…" : `Sign once, ${known.length} chains`}
-          </button>
-          {!isConnected && <span className="micro">connect a wallet to sign</span>}
-        </div>
+  // ---- connected: assets on the left, the grant on the right ----
+  const chains = [...new Set(chosen.map((h) => h.chain.id))];
+  return (
+    <div className="cpm wide">
+      <header className="bar">
+        <a className="brandmark" href="/">
+          <HorseMatrix cols={20} size={24} />
+          CrossPermit
+        </a>
+        <button type="button" className="btn btn-sm" onClick={() => disconnect()}>
+          <span className="cap">{short(address)}</span>
+        </button>
+      </header>
 
-        {error && (
-          <p className="lede" style={{ fontSize: 14, marginTop: 16, color: "var(--bad)" }}>
-            {error}
-          </p>
-        )}
-      </div>
+      <div className="cols">
+        <section className="panel inv" aria-label="Your assets">
+          <div className="sec-head">
+            <h2>Your assets</h2>
+            <span className="label">{reads.isLoading ? "Reading…" : `${HOLDINGS.length} tokens`}</span>
+          </div>
+          <p className="sub">Tap the tokens the desk may spend. Balances and anything already open are read from each chain.</p>
 
-      {status && (
-        <div className="mod" style={{ marginTop: 16 }}>
-          <span className="label">Submission</span>
-          <h3 style={{ marginTop: 10 }}>
-            {status.done ? (status.ok ? "Your mandate is live" : "Some chains did not land") : "Submitting…"}
-          </h3>
-          <div style={{ marginTop: 16 }}>
-            {status.legs.map((leg) => {
-              const c = chainById(leg.chainId);
+          <ul className="holdings">
+            {HOLDINGS.map((h, i) => {
+              const d = info(i);
+              const on = picked.has(h.key);
               return (
-                <Row
-                  key={leg.chainId}
-                  k={c?.name ?? String(leg.chainId)}
-                  v={
-                    leg.txHash && c ? (
-                      <a href={`${c.explorer}/tx/${leg.txHash}`} target="_blank" rel="noreferrer">
-                        {leg.status} · {leg.txHash.slice(0, 10)}…
-                      </a>
-                    ) : (
-                      (leg.error ?? leg.status)
-                    )
-                  }
-                />
+                <li key={h.key}>
+                  <button
+                    type="button"
+                    className="holding"
+                    aria-pressed={on}
+                    onClick={() =>
+                      setPicked((p) => {
+                        const n = new Set(p);
+                        n.has(h.key) ? n.delete(h.key) : n.add(h.key);
+                        return n;
+                      })
+                    }
+                  >
+                    <TokenIcon symbol={d.symbol} chain={h.chain} />
+                    <span className="who">
+                      <span className="t">
+                        {d.symbol ?? "Token"}
+                        <span className="chain">{h.chain.name}</span>
+                      </span>
+                      <span className="s">
+                        {d.name ?? "reading…"} · <span className="mono">{short(h.token, 6)}</span>
+                      </span>
+                    </span>
+                    <span className="bal">
+                      <span className="t">{d.balance === null ? "—" : group(d.balance)}</span>
+                      <span className="s">{d.open && d.open !== "0" ? `${group(d.open)} open` : "none open"}</span>
+                    </span>
+                  </button>
+                </li>
               );
             })}
+          </ul>
+        </section>
+
+        <section className="panel grantcol" aria-label="Grant access">
+          <div className="sec-head">
+            <h2>{client.name}</h2>
+            <span className="label">Grant access</span>
           </div>
-          <p className="lede" style={{ fontSize: 14, marginTop: 16 }}>
-            You signed once. Every line above came from that one signature, and each is a real
-            transaction on its own chain.
+          <p className="sub">{client.mandate || "You decide what this link is worth. Nothing is granted until you sign."}</p>
+
+          {chosen.length === 0 ? (
+            <p className="empty">No tokens selected. Pick one from your assets to begin.</p>
+          ) : (
+            <ul className="chosen">
+              {chosen.map((h) => {
+                const d = info(h.i);
+                return (
+                  <li key={h.key}>
+                    <TokenIcon symbol={d.symbol} chain={h.chain} small />
+                    <span className="who">
+                      <span className="t">{d.symbol ?? "Token"}</span>
+                      <span className="s">{h.chain.name}</span>
+                    </span>
+                    <span className="amt">{amountValid ? `${group(amount.trim())}` : "—"}</span>
+                    <button
+                      type="button"
+                      className="x"
+                      aria-label={`Remove ${d.symbol ?? "token"} on ${h.chain.name}`}
+                      onClick={() =>
+                        setPicked((p) => {
+                          const n = new Set(p);
+                          n.delete(h.key);
+                          return n;
+                        })
+                      }
+                    >
+                      ✕
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+
+          <div className="terms">
+            <label className="field">
+              <span className="lbl">Amount per token</span>
+              <input
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                inputMode="decimal"
+                placeholder="250000"
+                aria-invalid={amount.trim() !== "" && !amountValid}
+              />
+            </label>
+            <label className="field">
+              <span className="lbl">Access expires</span>
+              <select value={hours} onChange={(e) => setHours(Number(e.target.value))}>
+                {EXPIRIES.map((e) => (
+                  <option key={e.hours} value={e.hours}>
+                    {e.label} after signing
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <dl className="kv total">
+            <Row
+              k="Granting"
+              v={ready ? `${chosen.length} token${chosen.length === 1 ? "" : "s"} · ${chains.length} chain${chains.length === 1 ? "" : "s"}` : "—"}
+              m="to the Uniswap Universal Router · exact amounts, not unlimited"
+            />
+            <Row
+              k="Merkle root"
+              v={preview ? short(preview.intent.root) : "—"}
+              m={`verifying contract ${short(CROSS_PERMIT)} · same on every chain`}
+            />
+          </dl>
+
+          <button type="button" className="btn btn-action go" disabled={busy || !ready || !preview} onClick={grant}>
+            <span className="cap">{busy ? "Waiting for your wallet…" : "Sign and grant access"}</span>
+          </button>
+          <p className={`hint ${error ? "err" : ""}`}>
+            {error ??
+              (ready
+                ? `One signature covers all ${chosen.length}. Off chain, no gas — you can reject it in your wallet.`
+                : "Pick at least one token and set an amount.")}
           </p>
-        </div>
-      )}
-    </>
-  );
-}
-
-function Head({ client }: { client: ClientMandate }) {
-  return (
-    <>
-      <span className="label">Mandate request</span>
-      <h2 style={{ marginTop: 12 }}>{client.name}</h2>
-      <p className="lede" style={{ marginTop: 14 }}>{client.mandate}</p>
-      <div className="terminal" style={{ marginTop: 24 }}>
-        <div className="dot-field">
-          <HorseMatrix cols={24} tone="light" />
-        </div>
-        <span className="label">The bounds you are agreeing to</span>
-        <div style={{ marginTop: 14 }}>
-          <div className="kv">
-            <span>Adds, per chain</span>
-            <span>{formatUnits(BigInt(client.capUnits), 6)}</span>
-          </div>
-          <div className="kv">
-            <span>Expires after</span>
-            <span>{client.ttlHours} hours</span>
-          </div>
-          <div className="kv">
-            <span>Chains</span>
-            <span>
-              {client.chainIds
-                .map((id) => chainById(id)?.short ?? String(id))
-                .join(" · ")}
-            </span>
-          </div>
-          <div className="kv">
-            <span>Custody</span>
-            <span>stays with you</span>
-          </div>
-        </div>
+        </section>
       </div>
-    </>
+
+      <p className="micro seal">CrossPermit {short(CROSS_PERMIT, 8)} · the same contract on every chain</p>
+    </div>
   );
 }
 
-function Row({ k, v }: { k: string; v: React.ReactNode }) {
+// ---------- marks ----------
+
+/**
+ * A token's mark, badged with the chain it lives on.
+ *
+ * The same token symbol exists on several chains at different addresses, and confusing two of them
+ * is how a client grants on a chain they did not mean to. The badge is the chain, in the chain's
+ * own colour; the address under it is the part that actually binds the signature.
+ */
+function TokenIcon({ symbol, chain, small = false }: { symbol: string | null; chain: ChainInfo; small?: boolean }) {
+  const logo = symbol ? TOKEN_LOGOS[symbol.toUpperCase()] : undefined;
+  const initials = (symbol ?? "?").replace(/[^A-Za-z0-9]/g, "").slice(0, 4).toUpperCase() || "?";
   return (
-    <div className="kv">
-      <span>{k}</span>
-      <span style={{ wordBreak: "break-all", textAlign: "right" }}>{v}</span>
+    <span className={`icon ${small ? "sm" : ""}`} aria-hidden="true">
+      {logo ? <img className="disc" src={logo} alt="" /> : <span className="disc">{initials}</span>}
+      <img className="chainbadge" src={chain.logo} alt="" />
+    </span>
+  );
+}
+
+function ChainMark({ chain }: { chain: ChainInfo }) {
+  return <img className="chainmark" src={chain.logo} alt="" aria-hidden="true" />;
+}
+
+// ---------- the sheet ----------
+
+type Action = { label: string; onClick?: () => void; disabled?: boolean };
+
+function Sheet(p: {
+  title: string;
+  label: string;
+  lede?: string;
+  children?: React.ReactNode;
+  action?: Action;
+  aside?: Action;
+  foot?: string;
+  footTone?: "err";
+}) {
+  return (
+    <div className="cpm">
+      <header className="bar">
+        <a className="brandmark" href="/">
+          <HorseMatrix cols={20} size={24} />
+          CrossPermit
+        </a>
+        {p.aside && (
+          <button type="button" className="btn btn-sm" onClick={p.aside.onClick}>
+            <span className="cap">{p.aside.label}</span>
+          </button>
+        )}
+      </header>
+
+      <main className="panel" aria-live="polite">
+        <div className="sec-head">
+          <h1>{p.title}</h1>
+          <span className="label">{p.label}</span>
+        </div>
+        {p.lede && <p className="sub">{p.lede}</p>}
+        {p.children}
+        {p.action && (
+          <button type="button" className="btn btn-action go" disabled={p.action.disabled} onClick={p.action.onClick}>
+            <span className="cap">{p.action.label}</span>
+          </button>
+        )}
+        {p.foot && <p className={`hint ${p.footTone ?? ""}`}>{p.foot}</p>}
+      </main>
+
+      <p className="micro seal">CrossPermit {short(CROSS_PERMIT, 8)} · the same contract on every chain</p>
+    </div>
+  );
+}
+
+function Row({ k, v, m }: { k: string; v: React.ReactNode; m: React.ReactNode }) {
+  return (
+    <div className="kvrow">
+      <dt>{k}</dt>
+      <dd>
+        <span className="v">{v}</span>
+        <span className="m">{m}</span>
+      </dd>
+    </div>
+  );
+}
+
+function Note({ title, body }: { title: string; body: string }) {
+  return (
+    <div className="note-block">
+      <p className="v">{title}</p>
+      <p className="m">{body}</p>
     </div>
   );
 }

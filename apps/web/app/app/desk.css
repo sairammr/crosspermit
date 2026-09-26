@@ -1,0 +1,265 @@
+/* The desk's two screens, shaped to the TradeFi kit on top of globals.css: near-square radii, mono
+   tracked labels, a bordered ledger, console keys. Scoped to .desk so the other tabs keep their
+   look until they are restyled. Console-key CSS (.btn / .cap / .btn-sm) lives in globals.css. */
+
+.desk .panel,
+.desk .stat {
+  border-radius: 4px;
+}
+.desk .stat {
+  background: var(--panel);
+}
+
+/* section head: title left, "01 / …" label right */
+.desk .sec-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+.desk .sec-head h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.desk .label,
+.desk .micro {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+.desk .micro {
+  font-size: 10.5px;
+}
+
+/* inputs: kit height, raised surface, signal ring on focus */
+.desk input:not([type="checkbox"]),
+.desk select {
+  height: 44px;
+  background: var(--panel);
+  border-radius: 4px;
+}
+.desk :is(input, select):focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px #fde7da;
+}
+.desk .check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+.desk .check input {
+  accent-color: var(--accent);
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+.desk .chains {
+  gap: 16px;
+  margin-bottom: 4px;
+}
+.desk .actions {
+  margin-top: 16px;
+  gap: 14px;
+}
+.desk .actions .err {
+  margin: 0;
+}
+
+/* share link: one readonly field, one copy key */
+.desk .share {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+.desk .share .field {
+  flex: 1 1 320px;
+  margin: 0;
+}
+
+/* ledger */
+.desk .table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel);
+}
+.desk .table-wrap th,
+.desk .table-wrap td {
+  padding: 10px 12px;
+}
+.desk .table-wrap th {
+  font-family: var(--mono);
+  letter-spacing: 0.1em;
+}
+.desk .table-wrap td {
+  font-family: var(--mono);
+  font-size: 12px;
+  vertical-align: middle;
+}
+.desk .table-wrap tbody tr:last-child td {
+  border-bottom: 0;
+}
+.desk .table-wrap tbody tr:hover td {
+  background: var(--panel-2);
+}
+.desk .num {
+  text-align: right;
+}
+.desk td .row {
+  flex-wrap: nowrap;
+}
+.desk td .sub-line {
+  display: block;
+  font-family: var(--sans);
+  font-size: 11px;
+  color: var(--dim);
+  margin-top: 2px;
+}
+.desk .tag {
+  border-radius: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 3px 8px;
+}
+
+/* whose capital */
+.desk .subject {
+  align-items: flex-end;
+  margin-bottom: 12px;
+}
+.desk .subject .field {
+  margin: 0;
+  min-width: 260px;
+}
+.desk .addr {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--dim);
+  word-break: break-all;
+  padding-bottom: 12px;
+}
+
+/* venues */
+.desk .venues {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+}
+.desk .venue {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel);
+}
+.desk .venue-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.desk .venue-head h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.desk .venue > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+.desk .venue .note {
+  margin-top: auto;
+}
+.desk .kv-list {
+  margin: 0;
+}
+.desk .kv {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 0;
+  border-bottom: 1px dotted var(--line);
+}
+.desk .kv:last-child {
+  border-bottom: 0;
+}
+.desk .kv dd {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  text-align: right;
+}
+.desk .arm {
+  display: grid;
+  grid-template-columns: 48px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 0;
+  border-top: 1px solid var(--line-soft);
+}
+.desk .arm .amt {
+  font-family: var(--mono);
+  font-size: 14px;
+}
+.desk .arm .amt small {
+  display: block;
+  font-family: var(--sans);
+  font-size: 11px;
+  color: var(--dim);
+}
+
+/* ---------- the invitation sheet ----------
+   Writing a mandate is occasional work, so its form lives in a sheet over the ledger instead of
+   holding the top of the screen all day. <dialog> gives us Escape, the backdrop and focus for free. */
+
+.desk .sheet {
+  width: min(760px, calc(100vw - 32px));
+  max-height: min(86svh, 900px);
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--panel);
+  color: var(--text);
+  overflow: auto;
+}
+.desk .sheet::backdrop {
+  background: rgba(23, 23, 23, 0.42);
+}
+.desk .sheet-in {
+  padding: 24px;
+}
+/* The trigger sits with the ledger it writes into, pushed to the end of that header's baseline. */
+.desk .new-mandate {
+  margin-left: auto;
+}
+
+/* A client name is a link into that client's own dashboard. Underlined on hover only: a table of
+   twenty underlined names reads as noise, and the row is already the affordance. */
+.desk .client-open {
+  color: var(--text);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+}
+
+.desk .client-open:hover,
+.desk .client-open:focus-visible {
+  color: var(--accent-dim);
+  border-bottom-color: currentColor;
+}

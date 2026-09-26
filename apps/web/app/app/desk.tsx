@@ -9,8 +9,8 @@
  * differ, the screen says so instead of rendering a button that cannot work.
  */
 
-import { useState } from "react";
-import { formatUnits, parseUnits } from "viem";
+import { useRef, useState } from "react";
+import { formatUnits } from "viem";
 import { useReadContract } from "wagmi";
 
 import { crossPermitAbi } from "@crosspermit/sdk";
@@ -18,37 +18,42 @@ import { CHAINS, CROSS_PERMIT, chainById } from "../../src/config";
 import { type ClientMandate, createClient, revokeClient, useClients } from "../../src/clients";
 import { useTreasury } from "../../src/relayer";
 
+import "./desk.css";
+
 const short = (s: string, n = 6) => (s.length > 2 * n ? `${s.slice(0, n)}…${s.slice(-4)}` : s);
+
+const STATUS_LABEL: Record<ClientMandate["status"], string> = {
+  awaiting: "awaiting signature",
+  active: "active",
+  revoked: "withdrawn",
+};
 
 // ---------------------------------------------------------------- clients
 
 export function ClientsTab({ refreshKey, onChange }: { refreshKey: number; onChange: () => void }) {
   const clients = useClients(refreshKey);
   const [name, setName] = useState("");
-  const [mandate, setMandate] = useState("USDC mandate across three chains");
-  const [cap, setCap] = useState("250000");
-  const [hours, setHours] = useState("720");
-  const [chainIds, setChainIds] = useState<number[]>(CHAINS.map((c) => c.id));
+  const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [fresh, setFresh] = useState<ClientMandate | null>(null);
+  // The invitation form is a sheet rather than a permanent panel: opening a link is something the
+  // desk does occasionally, and the ledger is what it looks at all day. Native <dialog>, so the
+  // Escape key, the backdrop and focus trapping are the platform's job rather than ours.
+  const sheet = useRef<HTMLDialogElement>(null);
 
   async function add() {
     setBusy(true);
     setError(null);
     try {
-      // The cap is entered in whole tokens and stored in base units. Converted here, once, so the
-      // relayer never has to guess which of the two it was handed.
-      const res = await createClient({
-        name,
-        mandate,
-        capUnits: parseUnits(cap || "0", 6).toString(),
-        ttlHours: Number(hours),
-        chainIds,
-      });
+      // Name only. The desk opens a door; the client decides what to put behind it — which token,
+      // how much, on which chains, for how long — and the relayer records that when they sign.
+      const res = await createClient({ name, mandate: note.trim() || undefined });
       if (!res.ok) throw new Error(res.error);
       setFresh(res.client ?? null);
       setName("");
+      setNote("");
+      sheet.current?.close();
       onChange();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -58,109 +63,125 @@ export function ClientsTab({ refreshKey, onChange }: { refreshKey: number; onCha
   }
 
   return (
-    <>
+    <div className="desk">
+      <dialog className="sheet" ref={sheet} onClose={() => setError(null)}>
+        <form
+          className="sheet-in"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void add();
+          }}
+        >
+          <div className="sec-head">
+            <h2>New link</h2>
+            <span className="label">01 / Invitation, not authority</span>
+          </div>
+          <p className="sub">
+            You are opening a door, not setting terms. The client picks the token, the amount, the chains and the
+            expiry on their own screen, and nothing is granted until they sign it there.
+          </p>
+
+          <label className="field">
+            <span className="lbl">Client</span>
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Meridian Capital" autoFocus />
+          </label>
+          <label className="field">
+            <span className="lbl">Note to the client · optional</span>
+            <input
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="What this mandate is for"
+            />
+          </label>
+
+          <div className="row actions">
+            <button type="submit" className="btn btn-action" disabled={busy || !name.trim()}>
+              <span className="cap">{busy ? "Generating…" : "Generate link"}</span>
+            </button>
+            <button type="button" className="btn" onClick={() => sheet.current?.close()}>
+              <span className="cap">Cancel</span>
+            </button>
+            {error && (
+              <span className="err" role="alert">
+                {error}
+              </span>
+            )}
+          </div>
+        </form>
+      </dialog>
+
+      {fresh && <ShareLink client={fresh} />}
+
       <div className="panel">
-        <h2>Add a client</h2>
-        <p className="sub">
-          This creates an invitation, not authority. Nothing is granted until the client opens the
-          link and signs it themselves.
-        </p>
-
-        <div className="grid">
-          <label className="field">
-            <span className="lbl">Client name</span>
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Meridian Capital" />
-          </label>
-          <label className="field">
-            <span className="lbl">Mandate</span>
-            <input value={mandate} onChange={(e) => setMandate(e.target.value)} />
-          </label>
-          <label className="field">
-            <span className="lbl">Cap per chain (whole tokens)</span>
-            <input value={cap} onChange={(e) => setCap(e.target.value)} inputMode="decimal" />
-          </label>
-          <label className="field">
-            <span className="lbl">Expires in (hours)</span>
-            <input value={hours} onChange={(e) => setHours(e.target.value)} inputMode="numeric" />
-          </label>
-        </div>
-
-        <div className="row" style={{ marginTop: 12, gap: 14, flexWrap: "wrap" }}>
-          <span className="lbl">Chains</span>
-          {CHAINS.map((c) => (
-            <label key={c.id} style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
-              <input
-                type="checkbox"
-                checked={chainIds.includes(c.id)}
-                onChange={(e) =>
-                  setChainIds((prev) => (e.target.checked ? [...prev, c.id] : prev.filter((id) => id !== c.id)))
-                }
-              />
-              {c.short}
-            </label>
-          ))}
-        </div>
-
-        <div className="row" style={{ marginTop: 16 }}>
-          <button className="action" disabled={busy || !name.trim() || chainIds.length === 0} onClick={add}>
-            {busy ? "creating…" : "Create link"}
+        <div className="sec-head">
+          <h2>Clients</h2>
+          <span className="label">03 / Ledger</span>
+          <button
+            type="button"
+            className="btn btn-sm btn-action new-mandate"
+            onClick={() => sheet.current?.showModal()}
+          >
+            <span className="cap">New link</span>
           </button>
         </div>
-        {error && <div className="err">{error}</div>}
-
-        {fresh && <ShareLink client={fresh} />}
-      </div>
-
-      <div className="panel">
-        <h2>Clients</h2>
         {clients === null && <p className="note">Loading…</p>}
         {clients === false && (
           <p className="note">
-            The relayer refused the client list. That is expected when{" "}
-            <code>RELAYER_API_KEYS</code> is set and this dashboard has no{" "}
-            <code>NEXT_PUBLIC_RELAYER_API_KEY</code> — the list is the desk&rsquo;s, not the public&rsquo;s.
+            The relayer refused the client list. That is expected when <code>RELAYER_API_KEYS</code> is set and this
+            dashboard has no <code>NEXT_PUBLIC_RELAYER_API_KEY</code> — the list is the desk&rsquo;s, not the
+            public&rsquo;s.
           </p>
         )}
         {Array.isArray(clients) && clients.length === 0 && <p className="note">No clients yet.</p>}
         {Array.isArray(clients) && clients.length > 0 && (
-          <div className="scroll">
+          <div className="table-wrap">
             <table>
               <thead>
                 <tr>
                   <th>Client</th>
                   <th>Status</th>
-                  <th>Cap / chain</th>
+                  <th className="num">Cap / chain</th>
+                  <th className="num">Expiry</th>
                   <th>Chains</th>
                   <th>Signed by</th>
                   <th>Link</th>
-                  <th />
                 </tr>
               </thead>
               <tbody>
                 {clients.map((c) => (
                   <tr key={c.token}>
-                    <td>{c.name}</td>
                     <td>
-                      <span className={`tag ${c.status}`}>{c.status}</span>
+                      {/* The name is the way in. A client row is a summary; the dashboard behind
+                          it is where the approved tokens, their live capacity and what can be
+                          done with them actually live. */}
+                      <a className="client-open" href={`/app/client/${c.token}`}>
+                        {c.name}
+                      </a>
+                      <span className="sub-line">{c.mandate || "client sets the terms"}</span>
                     </td>
-                    <td>{formatUnits(BigInt(c.capUnits), 6)}</td>
-                    <td>{c.chainIds.map((id) => chainById(id)?.short ?? id).join(" · ")}</td>
-                    <td className="mono">{c.owner ? short(c.owner) : "—"}</td>
                     <td>
-                      <CopyLink token={c.token} />
+                      <span className={`tag ${c.status}`}>{STATUS_LABEL[c.status]}</span>
                     </td>
+                    <td className="num">{c.capUnits ? formatUnits(BigInt(c.capUnits), 6) : "—"}</td>
+                    <td className="num">{c.ttlHours ? `${c.ttlHours}h` : "—"}</td>
+                    <td>{c.chainIds.length ? c.chainIds.map((id) => chainById(id)?.short ?? id).join(" · ") : "—"}</td>
+                    <td>{c.owner ? short(c.owner) : "—"}</td>
                     <td>
-                      {c.status !== "revoked" && (
-                        <button
-                          className="ghost"
-                          onClick={async () => {
-                            await revokeClient(c.token);
-                            onChange();
-                          }}
-                        >
-                          withdraw
-                        </button>
-                      )}
+                      <div className="row">
+                        <CopyLink token={c.token} small />
+                        {c.status !== "revoked" && (
+                          <button
+                            type="button"
+                            className="btn btn-sm"
+                            onClick={async () => {
+                              await revokeClient(c.token);
+                              onChange();
+                            }}
+                          >
+                            <span className="cap">Withdraw</span>
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -169,11 +190,12 @@ export function ClientsTab({ refreshKey, onChange }: { refreshKey: number; onCha
           </div>
         )}
         <p className="note">
-          Withdrawing a link only stops it being used. An allowance a client already signed is live
-          on chain until it expires or a cross-chain <span className="mono">LOCK</span> retires it.
+          A dash means the client has not signed yet, so there are no terms: they choose the token, the cap, the chains
+          and the expiry themselves. Withdrawing a link only stops it being used. An allowance a client already signed is live on chain until it
+          expires or a cross-chain <span className="mono">LOCK</span> retires it.
         </p>
       </div>
-    </>
+    </div>
   );
 }
 
@@ -183,27 +205,32 @@ function linkFor(token: string): string {
 
 function ShareLink({ client }: { client: ClientMandate }) {
   return (
-    <div className="panel" style={{ marginTop: 16 }}>
-      <h2>Send this to {client.name}</h2>
-      <p className="sub">One client, one link. It grants nothing on its own.</p>
-      <div className="mono" style={{ wordBreak: "break-all", marginTop: 8 }}>
-        {linkFor(client.token)}
+    <div className="panel">
+      <div className="sec-head">
+        <h2>Send this to {client.name}</h2>
+        <span className="label">02 / Share link</span>
       </div>
-      <div className="row" style={{ marginTop: 12 }}>
+      <p className="sub">One client, one link. It grants nothing on its own.</p>
+      <div className="share">
+        <label className="field">
+          <span className="lbl">Link</span>
+          <input readOnly value={linkFor(client.token)} onFocus={(e) => e.currentTarget.select()} />
+        </label>
         <CopyLink token={client.token} label="Copy link" />
-        <a className="ghost" href={`/c/${client.token}`} target="_blank" rel="noreferrer">
-          open as the client sees it
+        <a className="btn" href={`/c/${client.token}`} target="_blank" rel="noreferrer">
+          <span className="cap">Open as client</span>
         </a>
       </div>
     </div>
   );
 }
 
-function CopyLink({ token, label = "copy" }: { token: string; label?: string }) {
+function CopyLink({ token, label = "Copy", small = false }: { token: string; label?: string; small?: boolean }) {
   const [done, setDone] = useState(false);
   return (
     <button
-      className="ghost"
+      type="button"
+      className={small ? "btn btn-sm" : "btn"}
       onClick={async () => {
         // navigator.clipboard is unavailable on insecure origins that are not localhost, so a
         // failure here is normal rather than exceptional: show the state instead of throwing.
@@ -216,7 +243,9 @@ function CopyLink({ token, label = "copy" }: { token: string; label?: string }) 
         }
       }}
     >
-      {done ? "copied" : label}
+      <span className="cap" aria-live="polite">
+        {done ? "Copied" : label}
+      </span>
     </button>
   );
 }
@@ -290,6 +319,58 @@ function ChainCapital({
   );
 }
 
+/** One chain's row inside a venue card: the allowance readout and the key that arms it. */
+function ArmRow({
+  chain,
+  owner,
+  live,
+  armed,
+  onArm,
+}: {
+  chain: (typeof CHAINS)[number];
+  owner?: `0x${string}`;
+  live: boolean;
+  armed: boolean;
+  onArm: () => void;
+}) {
+  const a = useAllowance(chain, owner);
+  const deployable = a.state === "ok" ? a.amount : 0n;
+  const why = !live
+    ? "no testnet deployment"
+    : a.state === "idle"
+      ? "no account selected"
+      : a.state === "loading"
+        ? "reading…"
+        : a.state === "unreadable"
+          ? "allowance unreadable — unknown, not zero"
+          : a.expired
+            ? "allowance expired"
+            : deployable === 0n
+              ? "nothing deployable"
+              : "";
+  const eligible = why === "";
+
+  return (
+    <div className="arm">
+      <span className="micro">{chain.short}</span>
+      <span className="amt">
+        {a.state === "ok" ? formatUnits(deployable, 6) : "—"}
+        <small>{eligible ? "deployable, 6dp" : why}</small>
+      </span>
+      <button
+        type="button"
+        className={eligible ? "btn btn-sm btn-action" : "btn btn-sm"}
+        disabled={!eligible}
+        aria-pressed={armed}
+        title={eligible ? undefined : why}
+        onClick={onArm}
+      >
+        <span className="cap">{armed ? "Armed" : "Arm"}</span>
+      </button>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------- strategies
 
 /**
@@ -341,6 +422,9 @@ export function StrategiesTab({ owner, refreshKey }: { owner?: `0x${string}`; re
   const clients = useClients(refreshKey);
   const active = Array.isArray(clients) ? clients.filter((c) => c.owner && c.status === "active") : [];
   const [picked, setPicked] = useState<string>("");
+  // ponytail: "armed" is a desk-side selection of venue × chain only. No route is submitted from
+  // this screen yet; wire the router call here when the desk gets a submit path.
+  const [armed, setArmed] = useState<string | null>(null);
 
   // The desk manages client capital, so the subject of this screen is a client by default and the
   // connected wallet only when no client is chosen. Whose figures these are is named on the page:
@@ -352,16 +436,19 @@ export function StrategiesTab({ owner, refreshKey }: { owner?: `0x${string}`; re
   const treasury = useTreasury(subject, refreshKey);
 
   return (
-    <>
+    <div className="desk">
       <div className="panel">
-        <h2>Deployable now</h2>
+        <div className="sec-head">
+          <h2>Deployable now</h2>
+          <span className="label">01 / Capital per chain</span>
+        </div>
         <p className="sub">
-          Read off each chain's own storage: the allowance still standing to the execution desk, with
-          locked and expired ones counted as nothing.
+          Read off each chain's own storage: the allowance still standing to the execution desk, with locked and expired
+          ones counted as nothing.
         </p>
 
-        <div className="row" style={{ gap: 12, alignItems: "center", marginBottom: 12 }}>
-          <label className="field" style={{ minWidth: 260 }}>
+        <div className="row subject">
+          <label className="field">
             <span className="lbl">Whose capital</span>
             <select value={picked} onChange={(e) => setPicked(e.target.value)}>
               <option value="">{owner ? "the connected wallet" : "— pick a client —"}</option>
@@ -373,7 +460,7 @@ export function StrategiesTab({ owner, refreshKey }: { owner?: `0x${string}`; re
             </select>
           </label>
           {subject && (
-            <span className="mono dim">
+            <span className="addr">
               {chosen ? `${chosen.name} · ` : "connected wallet · "}
               {subject}
             </span>
@@ -382,11 +469,14 @@ export function StrategiesTab({ owner, refreshKey }: { owner?: `0x${string}`; re
 
         {active.length === 0 && Array.isArray(clients) && (
           <p className="note">
-            No client has signed a mandate yet, so there is no client capital to show. Add one on the
-            clients tab.
+            No client has signed a mandate yet, so there is no client capital to show. Add one on the clients tab.
           </p>
         )}
-        {!subject && <p className="note">Connect a wallet, pick a client, or open with <code>?owner=0x…</code>.</p>}
+        {!subject && (
+          <p className="note">
+            Connect a wallet, pick a client, or open with <code>?owner=0x…</code>.
+          </p>
+        )}
         {subject && (
           <div className="grid">
             {CHAINS.map((c) => (
@@ -402,59 +492,84 @@ export function StrategiesTab({ owner, refreshKey }: { owner?: `0x${string}`; re
       </div>
 
       <div className="panel">
-        <h2>Strategies and venues</h2>
+        <div className="sec-head">
+          <h2>Strategies and venues</h2>
+          <span className="label">02 / Arm per chain</span>
+        </div>
         <p className="sub">Where a mandate can be put to work, and which of those this deployment can reach.</p>
-        {STRATEGIES.map((s) => (
-          <div className="panel" key={s.key} style={{ marginTop: 12 }}>
-            <div className="row" style={{ justifyContent: "space-between", alignItems: "baseline" }}>
-              <h2 style={{ margin: 0 }}>{s.venue}</h2>
-              <span className={`tag ${s.live ? "active" : "awaiting"}`}>
-                {s.live ? "live on all three testnets" : "mainnet fork only"}
-              </span>
-            </div>
-            <p className="sub">{s.what}</p>
-            <div className="grid">
-              {s.figures.map(([k, v]) => (
-                <div className="stat" key={k}>
-                  <div className="k">{k}</div>
-                  <div className="v">{v}</div>
-                </div>
-              ))}
-            </div>
-            {!s.live && (
-              <p className="note">
-                No deployment exists on Ethereum, Base or Optimism Sepolia, so this dashboard will
-                not offer to route into it. The figures above were recorded by{" "}
-                <span className="mono">FORK=1 forge test</span> against live mainnet.
-              </p>
-            )}
-          </div>
-        ))}
+        <div className="venues">
+          {STRATEGIES.map((s) => (
+            <section className="venue" key={s.key} aria-labelledby={`venue-${s.key}`}>
+              <div className="venue-head">
+                <h3 id={`venue-${s.key}`}>{s.venue}</h3>
+                <span className={`tag ${s.live ? "active" : "awaiting"}`}>
+                  {s.live ? "live on all three testnets" : "mainnet fork only"}
+                </span>
+              </div>
+              <p>{s.what}</p>
+              <dl className="kv-list">
+                {s.figures.map(([k, v]) => (
+                  <div className="kv" key={k}>
+                    <dt className="micro">{k}</dt>
+                    <dd>{v}</dd>
+                  </div>
+                ))}
+              </dl>
+              <div>
+                {CHAINS.map((c) => {
+                  // Keyed on the subject too, so switching client disarms whatever was armed for the
+                  // last one instead of carrying a selection across accounts.
+                  const id = `${subject ?? ""}:${s.key}:${c.id}`;
+                  return (
+                    <ArmRow
+                      key={c.id}
+                      chain={c}
+                      owner={subject}
+                      live={s.live}
+                      armed={armed === id}
+                      onArm={() => setArmed((prev) => (prev === id ? null : id))}
+                    />
+                  );
+                })}
+              </div>
+              {!s.live && (
+                <p className="note">
+                  No deployment exists on Ethereum, Base or Optimism Sepolia, so this dashboard will not offer to route
+                  into it. The figures above were recorded by <span className="mono">FORK=1 forge test</span> against
+                  live mainnet.
+                </p>
+              )}
+            </section>
+          ))}
+        </div>
       </div>
 
       <div className="panel">
-        <h2>Liquidity venues per chain</h2>
-        <div className="scroll">
+        <div className="sec-head">
+          <h2>Liquidity venues per chain</h2>
+          <span className="label">03 / Execution desks</span>
+        </div>
+        <div className="table-wrap">
           <table>
             <thead>
               <tr>
                 <th>Chain</th>
                 <th>Execution desk (spender)</th>
                 <th>Token</th>
-                <th>Deployable</th>
+                <th className="num">Deployable</th>
               </tr>
             </thead>
             <tbody>
               {CHAINS.map((c) => (
                 <tr key={c.id}>
                   <td>{c.name}</td>
-                  <td className="mono">
+                  <td>
                     <a href={`${c.explorer}/address/${c.router}`} target="_blank" rel="noreferrer">
                       {short(c.router)}
                     </a>
                   </td>
-                  <td className="mono">{short(c.token)}</td>
-                  <td>
+                  <td>{short(c.token)}</td>
+                  <td className="num">
                     <Deployable chain={c} owner={subject} />
                   </td>
                 </tr>
@@ -463,6 +578,6 @@ export function StrategiesTab({ owner, refreshKey }: { owner?: `0x${string}`; re
           </table>
         </div>
       </div>
-    </>
+    </div>
   );
 }

@@ -16,6 +16,7 @@
       "name": "@crosspermit/desk",
       "version": "0.1.0",
       "dependencies": {
+        "@crosspermit/web": "workspace:*",
         "viem": "^2.21.0",
       },
     },

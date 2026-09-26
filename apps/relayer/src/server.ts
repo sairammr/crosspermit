@@ -6,6 +6,7 @@
 //   GET  /v1/intents            recent intents
 //   GET  /v1/chains             what this relayer serves, and with whose key
 //   GET  /v1/treasury/:owner    outstanding authority, decoded from the MultiBaas event ledger
+//   GET  /v1/activity/:owner    every recorded act of authority, from the same ledger, newest first
 //   POST /v1/clients            create a client mandate; returns the link token
 //   GET  /v1/clients            the desk's client list
 //   GET  /v1/clients/:token     one mandate, readable by whoever holds the link
@@ -149,6 +150,33 @@ const server = Bun.serve({
       }
     }
 
+    // What the control plane recorded for one owner, newest first. The ledger says what stands
+    // now; this says how it got there — and it is the only record of a grant that has since
+    // expired, because an expired allowance leaves no storage behind.
+    const activity = path.match(/^\/v1\/activity\/(0x[0-9a-fA-F]{40})$/);
+    if (activity) {
+      const owner = activity[1] as `0x${string}`;
+      const covered = config.treasury.chains();
+      const uncovered = [...config.chains.keys()].filter((id) => !config.treasury.has(id));
+      try {
+        const rows = await config.treasury.activityAllChains(owner);
+        return json({
+          owner,
+          covered,
+          uncovered,
+          rows: rows.map((r) => ({
+            ...r,
+            amount: r.amount?.toString(),
+            chainName: config.chains.get(r.chainId)?.name ?? String(r.chainId),
+            explorer: r.txHash ? `${config.chains.get(r.chainId)?.explorer ?? ""}/tx/${r.txHash}` : undefined,
+          })),
+        });
+      } catch (e) {
+        console.error("activity read failed", e);
+        return json({ error: "control plane unreachable", code: "activity_unavailable", covered, uncovered }, 502);
+      }
+    }
+
     // ---------------------------------------------------------------- client mandates
     //
     // Creating and listing are the desk's own operations and sit behind the API key. Reading one
@@ -173,16 +201,16 @@ const server = Bun.serve({
 
     const link = path.match(/^\/v1\/clients\/([0-9a-f]{32})\/link$/);
     if (link && req.method === "POST") {
-      const body = (await req.json().catch(() => ({}))) as { owner?: string; intentId?: string };
+      const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
       // The intent has to exist and has to be the one this owner signed. Without both checks a
       // mandate could be marked active by anyone who guessed a link and posted an address.
-      const intent = body.intentId ? store.intent(body.intentId) : null;
+      const intent = body.intentId ? store.intent(String(body.intentId)) : null;
       if (!intent) return json({ error: "unknown intent", code: "not_found" }, 404);
       if (intent.owner.toLowerCase() !== String(body.owner ?? "").toLowerCase()) {
         return json({ error: "owner does not match the signed intent", code: "owner_mismatch" }, 400);
       }
       try {
-        const bound = clients.link(link[1]!, intent.owner, intent.intentId);
+        const bound = clients.link(link[1]!, intent.owner, intent.intentId, body);
         return bound
           ? json({ client: bound })
           : json({ error: "this link is already claimed or was withdrawn", code: "already_linked" }, 409);

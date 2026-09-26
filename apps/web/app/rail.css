@@ -1,0 +1,199 @@
+/* ============================================================
+   TOP RAIL — the station-preset key bank.
+   Landing-only: every selector sits under .lp. Selectors carry `.rail` as well as `.rail-nav`
+   so they outrank the plain-link rules still standing in landing.css regardless of import order.
+   ============================================================ */
+
+/* The rail is absent over the hero and arrives once the hero is behind you. GSAP owns the
+   transform; everything here is the look it arrives with. */
+.lp .rail {
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 40;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  backdrop-filter: blur(14px) saturate(140%);
+  border-bottom: 1px solid var(--line);
+  /* No drop shadow. The rail sits translated off the top of the viewport until it is wanted, and a
+     shadow attached to it paints a dark strip along the very top edge of the hero the whole time. */
+}
+.lp .rail-in {
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: 10px 24px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 24px;
+}
+
+/* ---------- the bezel ----------
+   A shallow inset tray the keys are nested into. This is the part that makes four keys read as one
+   tuner rather than as four buttons that happen to be adjacent. */
+.lp .railkeys {
+  justify-self: center;
+  padding: 3px;
+  border-radius: 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  box-shadow: inset 0 1px 2px rgba(40, 30, 20, 0.09);
+}
+.lp .rail .rail-nav {
+  display: flex;
+  gap: 3px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.lp .rail .rail-nav::-webkit-scrollbar {
+  display: none;
+}
+
+/* ---------- the keys ----------
+   Same construction as .btn: a skirt in ::before that never moves, and a cap that sinks --travel
+   into it. Kept off the .btn class on purpose — these latch, and .btn keys must not. */
+.lp .rail .rail-nav a {
+  --stand: 4px;
+  --travel: 3px;
+  --r: 9px;
+  --top: #fbfaf7;
+  --face: #f3f1ed;
+  --foot: #e7e3db;
+  --wall: #c9c4bb;
+  --fg: var(--ink-3);
+  --key-ease: cubic-bezier(0.2, 0.65, 0.3, 1);
+
+  position: relative;
+  display: block;
+  padding: 0 0 var(--stand);
+  color: var(--fg);
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.lp .rail .rail-nav a::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: var(--stand);
+  bottom: 0;
+  border-radius: var(--r);
+  background: var(--wall);
+}
+.lp .rail .rail-nav a .cap {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 30px;
+  padding: 0 14px;
+  border-radius: var(--r);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--fg);
+  white-space: nowrap;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 24%),
+    linear-gradient(180deg, var(--top) 0%, var(--face) 18%, var(--face) 78%, var(--foot) 100%);
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.055),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7),
+    inset 0 -2px 2px rgba(0, 0, 0, 0.09),
+    0 1px 0 rgba(0, 0, 0, 0.1);
+  transition:
+    transform 90ms var(--key-ease),
+    box-shadow 90ms var(--key-ease),
+    color 90ms var(--key-ease);
+}
+
+/* Hover is a hint of travel, not a press — a full sink would make hover indistinguishable from the
+   latched section and the bank would lie about where you are. */
+.lp .rail .rail-nav a:hover {
+  text-decoration: none;
+}
+.lp .rail .rail-nav a:hover .cap {
+  color: var(--text);
+  transform: translateY(1px);
+}
+.lp .rail .rail-nav a:active .cap {
+  transform: translateY(var(--travel));
+  box-shadow:
+    inset 0 2px 4px rgba(0, 0, 0, 0.2),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.35),
+    0 1px 0 rgba(0, 0, 0, 0.1);
+}
+.lp .rail .rail-nav a:focus-visible {
+  outline: none;
+}
+.lp .rail .rail-nav a:focus-visible .cap {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.7),
+    inset 0 -2px 2px rgba(0, 0, 0, 0.1),
+    0 0 0 2px var(--bg),
+    0 0 0 4px var(--text);
+}
+
+/* ---------- the latched key ----------
+   GSAP writes data-current as you scroll. The key stays down: cap sunk the full travel, face a
+   shade darker, and an accent bar lit across the bottom of the cap so the held station is legible
+   at a glance rather than only on close inspection. */
+.lp .rail .rail-nav a[data-current="true"] {
+  --face: #e9e6e0;
+  --top: #efece6;
+  --foot: #ddd9d1;
+  --fg: var(--text);
+}
+.lp .rail .rail-nav a[data-current="true"] .cap {
+  transform: translateY(var(--travel));
+  box-shadow:
+    inset 0 2px 5px rgba(0, 0, 0, 0.22),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.3),
+    0 1px 0 rgba(0, 0, 0, 0.08);
+}
+.lp .rail .rail-nav a[data-current="true"] .cap::after {
+  content: "";
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 4px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+/* A latched key does not respond to hover; it is already down. */
+.lp .rail .rail-nav a[data-current="true"]:hover .cap {
+  transform: translateY(var(--travel));
+}
+
+.lp .rail .btn .cap {
+  height: 34px;
+  padding: 0 16px;
+  font-size: 13px;
+}
+
+/* Tighten the keys before losing them, so the bank survives a laptop that is merely narrow. */
+@media (max-width: 1100px) {
+  .lp .rail .rail-nav a .cap {
+    padding: 0 10px;
+    letter-spacing: 0.1em;
+  }
+}
+/* Below this the three zones cannot share a line. The bank goes rather than fold into a menu:
+   the sections are all reachable by scrolling, which is what a phone does anyway. */
+@media (max-width: 900px) {
+  .lp .railkeys {
+    display: none;
+  }
+  .lp .rail-in {
+    grid-template-columns: auto auto;
+    justify-content: space-between;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lp .rail .rail-nav a .cap {
+    transition: none;
+  }
+}
