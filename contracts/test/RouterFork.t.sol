@@ -42,7 +42,7 @@ contract RouterForkTest is Test {
     // universal-router script/deployParameters/Deploy*.s.sol -> v4PoolManager.
     address constant PM_SEPOLIA = 0xE03A1074c86CFeDd5C142C4F04F1a1536e203543;
     address constant PM_BASE_SEPOLIA = 0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408;
-    address constant PM_UNICHAIN_SEPOLIA = 0x00B036B58a818B1BC34d502D3fE730Db729e62AC;
+    address constant PM_OP_SEPOLIA = 0xf7F5aB3DcA35e17dE187b459159BC643853B3c67;
 
     bytes constant COMMAND_V4_SWAP = hex"10";
     bytes constant ACTIONS_EXACT_IN_SINGLE = hex"060c0f"; // SWAP_EXACT_IN_SINGLE, SETTLE_ALL, TAKE_ALL
@@ -80,8 +80,8 @@ contract RouterForkTest is Test {
         _swapThroughCrossPermit("RPC_BASE_SEPOLIA", 84_532, PM_BASE_SEPOLIA, "BaseSepolia");
     }
 
-    function test_v4Swap_unichainSepolia() public {
-        _swapThroughCrossPermit("RPC_UNI_SEPOLIA", 1301, PM_UNICHAIN_SEPOLIA, "UnichainSepolia");
+    function test_v4Swap_optimismSepolia() public {
+        _swapThroughCrossPermit("RPC_OP_SEPOLIA", 11_155_420, PM_OP_SEPOLIA, "OPSepolia");
     }
 
     /**
