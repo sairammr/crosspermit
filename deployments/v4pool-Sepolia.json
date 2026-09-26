@@ -1,0 +1,12 @@
+{
+  "chain": "Sepolia",
+  "poolManager": "0xE03A1074c86CFeDd5C142C4F04F1a1536e203543",
+  "currency0": "0x496c39f509a1ec2b63cbe689e7fd52d56ee02c17",
+  "currency1": "0x98fea3a8ec2c4075470df4d5c497e2dff31fed88",
+  "fee": 3000,
+  "tickSpacing": 60,
+  "hooks": "0x0000000000000000000000000000000000000000",
+  "seeder": "0xb2d597260727b9739840968ed2ad6cd188d2dbaf",
+  "liquidity": "1000000000000",
+  "tx": "0x8e66ce880a89c9d847b57b3c079da9dd4012f386e8745ea9d253e9ec75f29b15"
+}
