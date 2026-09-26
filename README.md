@@ -7,8 +7,10 @@ Ethereum Sepolia, Base Sepolia and Optimism Sepolia; a relayer submits all three
 request; and a Uniswap Universal Router deployed with `permit2 := CrossPermit` spends them —
 including a **real Uniswap v4 swap on each chain**, settled out of that allowance.
 
-On top of that sits an institutional treasury layer: MultiBaas for custody and audit, Aave v4 for
-yield, and a desk for tokenized equities.
+On top of that sits the desk: a fund manager adds a client, sends them one link, and the client's
+single signature arms a bounded, revocable mandate on every chain — after which the desk allocates
+it. MultiBaas carries custody and audit, Aave v4 the yield, and there is a desk for tokenized
+equities.
 
 Today an institution moving collateral across four chains signs four times, from four wallet
 sessions, each one a separate approval risk and a separate line in the audit log. CrossPermit
@@ -85,13 +87,51 @@ v4's real Core Hub and MAIN Spoke. Supply APR 3.976%, APY 4.056%, utilisation 90
 
 ## Layout
 
+## The desk
+
+```
+add a client  ->  send one link  ->  they sign once  ->  you allocate
+```
+
+A **mandate** is an invitation, not authority. `POST /v1/clients` stores what the desk intends to
+ask for and returns a link; nothing can move until the client opens `/c/<token>` and signs. That is
+why reading a mandate by its token needs no key while creating and listing sit behind the desk's
+own key: the link carries an offer, and whoever holds it can only sign *their own* permission with
+it.
+
+The mandate page renders every per-chain bundle in plain language, from values computed on the
+page, before the wallet is ever opened — including the allowance already outstanding to that
+spender, because an entry carrying an expiry is an **increase**, so the cap alone would understate
+what is being granted.
+
+Claiming a link is one conditional statement, so two people racing it cannot both win, and binding
+requires an intent the relayer already holds under that owner's name. Withdrawing a link says out
+loud that it does not revoke a signed allowance: those are different acts and only one of them
+closes exposure.
+
+Prove the whole loop against the live testnets:
+
+```bash
+set -a && . ./.env && set +a
+bun run apps/relayer/src/server.ts &
+bun run packages/sdk/scripts/onboard.ts
+```
+
+Twenty-two checks: the cap survives the round trip exactly, each chain agrees with the leaf computed
+on the client, one 65-byte signature covers every chain, a second claim on the same link is refused,
+an unknown intent cannot bind a mandate, and the allowance on each chain rises by exactly the cap
+that was offered.
+
+## Layout
+
 ```
 contracts/src/            CrossPermit core: the allowance ledger, salt registry, multi-token transfers
 contracts/src/treasury/   YieldRouter (Aave v4) and EquityDesk (tokenized equities)
 contracts/test/           forge suite: cross-chain flow, encoding parity, live-chain fork proofs
 packages/sdk/             the client: bundles, leaves, merkle tree, the one signature, cancellation
 packages/multibaas/       MultiBaas control plane: custody, indexing, allowance ledger, audit trail
-apps/relayer/             one POST, N chains; admission control, simulation, SSE
+apps/relayer/             one POST, N chains; admission control, simulation, SSE, client mandates
+apps/web/                 the landing page, the desk, and the client's mandate page
 script/deploy.sh          deterministic CrossPermit deploy, then the router
 script/test.sh            every offline check, in the order a change should break it
 PLAN.md                   the full build plan, phase by phase, and what is still a limitation
@@ -121,8 +161,8 @@ bun run packages/sdk/scripts/lifecycle.ts
 bun run apps/relayer/src/server.ts &
 bun run packages/sdk/scripts/lifecycle.ts --only authorize --via-relayer http://localhost:8787
 
-# the dashboard
-cp apps/web/.env.example apps/web/.env.local   # add a Reown project id for WalletConnect
+# the site: landing page, the desk at /app, a client's mandate at /c/<token>
+cp apps/web/.env.example apps/web/.env.local   # a Reown project id, and the desk's relayer key
 cd apps/web && bun run build && bunx next start -p 3100
 ```
 
@@ -160,6 +200,11 @@ state transition, and every grant or revocation carried by **one** signature acr
   the address. Treat it as a migration.
 - **APR and APY are labelled distinctly** in every ABI, API response and pixel.
 - **Compliance gates default to deny**, and an unset gate denies everything.
+- **The signed ordering timestamp is set behind wall clock.** CrossPermit rejects a permit that
+  orders itself into the future, and a chain's head block is routinely a few seconds old — Ethereum
+  builds one every twelve seconds. Signing with `Date.now()` fails intermittently on slow chains and
+  never on fast ones, which is the worst shape a bug can have. `TIMESTAMP_LAG` is a constant offset,
+  so ordering between intents is untouched.
 
 Known limitations, and what is deliberately not yet proved, are in [`PLAN.md`](PLAN.md) and
 [`docs/threat-model.md`](docs/threat-model.md).

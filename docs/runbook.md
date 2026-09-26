@@ -25,6 +25,7 @@ disagrees with the chain.
 | **2** | MultiBaas key leaked | Revoke in the deployment UI. The chains remain the source of truth. |
 | **3** | Relayer down or wedged | Clients fall back to self-submission. Fix in hours. |
 | **3** | Legs stranded in `submitting` | See *Stranded legs*. Never blind-retry. |
+| **3** | A permit reverts with `InvalidTimestamp` on one chain only | The signed ordering timestamp is ahead of that chain's head block. See *Timestamp drift*. |
 | **4** | Audit trail incomplete on a chain | Expected where no MultiBaas deployment exists. Confirm it is that, not an outage. |
 
 ---
@@ -52,6 +53,17 @@ spend is decoration.
 To restore, `--only unlock` — note the unlock must carry a timestamp strictly newer than the lock, or
 the contract ignores it. The lifecycle's monotonic stage clock handles this; a hand-rolled call must
 not.
+
+### Withdrawing a client link
+
+```bash
+curl -s -X POST -H "Authorization: Bearer $RELAYER_API_KEY" \
+  localhost:8787/v1/clients/<token>/revoke | jq
+```
+
+This stops the link being used. **It does not revoke an allowance the client already signed** — for
+that, lock the spender across chains as above. The endpoint says so in its own response because the
+two are easy to confuse and only one of them closes exposure.
 
 ### Retracting something signed but not yet submitted
 
@@ -125,6 +137,25 @@ curl -s -X POST -H "Authorization: Bearer $MULTIBAAS_API_KEY" -H 'content-type: 
 Cancelling writes a no-op at that nonce, which unblocks everything queued behind it.
 
 ---
+
+## Timestamp drift
+
+Symptom: one chain — almost always the slowest — reverts with `InvalidTimestamp` while the others
+confirm from the same signature.
+
+CrossPermit refuses a permit whose `timestamp` is ahead of `block.timestamp`. A chain's head block
+is routinely several seconds old (Ethereum builds one every twelve seconds), so a client signing
+with wall clock fails there and nowhere else.
+
+```bash
+for rpc in $RPC_ETH_SEPOLIA $RPC_BASE_SEPOLIA $RPC_OP_SEPOLIA; do
+  echo "$(cast block latest -f timestamp --rpc-url $rpc) vs $(date +%s)"
+done
+```
+
+The SDK signs at `now - TIMESTAMP_LAG` (90s) for this reason. If a chain is further behind than
+that — a stalled sequencer, a node many blocks stale — raise the constant rather than retrying: a
+retry re-signs with the same relationship to wall clock and fails again.
 
 ## Key rotation
 

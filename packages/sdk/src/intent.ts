@@ -233,6 +233,22 @@ export function fromWire(raw: unknown): Intent {
 // ---------- Building one ----------
 
 /**
+ * How far behind wall clock the signed ordering timestamp is set.
+ *
+ * CrossPermit rejects a permit whose `timestamp` is ahead of `block.timestamp` — a permit cannot
+ * order itself into the future. Wall clock is routinely ahead of a chain's head block: Ethereum
+ * builds a block every twelve seconds, so for most of any given second the newest block is already
+ * several seconds old. Signing with `Date.now()` therefore fails intermittently on slow chains and
+ * never on fast ones, which is the worst shape a bug can have — it looks like a chain-specific
+ * outage rather than a clock assumption.
+ *
+ * Ninety seconds clears Ethereum's block interval with room for a node a few blocks behind. It does
+ * not disturb ordering between permits, because it is a constant offset: two intents signed a
+ * minute apart keep their order after both are shifted by the same amount.
+ */
+export const TIMESTAMP_LAG = 90;
+
+/**
  * Turn per-chain permit entries into an unsigned intent plus the exact payload to sign.
  *
  * Leaf order is the caller's, and it matters: the tree is left-leaning, so the LAST leaf sits one
@@ -250,6 +266,10 @@ export function prepareIntent(a: {
   if (a.chains.length === 0) throw new IntentError("no_legs", "an intent needs at least one chain");
 
   const now = a.now ?? Math.floor(Date.now() / 1000);
+  // The deadline is measured from wall clock — it is about how long the signature stays usable.
+  // The ordering timestamp is measured from a point safely in every chain's past. They are
+  // different clocks answering different questions, so they are computed separately.
+  const timestamp = Math.max(0, now - TIMESTAMP_LAG);
   const bundles = a.chains.map((c) => ({ chainId: BigInt(c.chainId), permits: c.permits }));
   const { root, proofs } = buildUnbalancedTree(bundles.map(leafOf));
 
@@ -258,7 +278,7 @@ export function prepareIntent(a: {
     owner: a.owner,
     salt: a.salt ?? randomSalt(),
     deadline: now + (a.ttl ?? 3600),
-    timestamp: now,
+    timestamp,
     root,
     legs: a.chains.map((c, i) => ({ chainId: c.chainId, bundle: bundles[i]!, proof: proofs[i]! })),
   };

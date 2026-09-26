@@ -162,6 +162,33 @@ old signatures stop verifying — or worse, a *new* deployment at a *new* addres
 script predicts the address from init code plus salt and refuses to guess when it cannot read chain
 state — a rate-limited RPC returning empty must never read as "already deployed".
 
+### T12 — A leaked client mandate link
+
+**The attack.** A `/c/<token>` link is forwarded, posted in a channel, or guessed.
+
+**Answer.** The link carries an *offer*, not authority. Whoever opens it can read what the desk is
+asking for and sign **their own** permission with it — it cannot be replayed into anyone else's
+funds, and it grants nothing until somebody signs. Tokens are 128 bits from the platform CSPRNG, so
+the desk's client list cannot be enumerated. Claiming is one conditional UPDATE, so a second claim
+is refused rather than silently repointing the row at the new address, and binding requires an
+intent the relayer already holds under that owner's name — posting an address alone does nothing.
+
+**Residual.** The mandate text and cap are readable by whoever holds the link. That is confidential
+business information even though it is not authority, so treat a link like a draft term sheet. A
+client who signs the *wrong* link grants a real allowance to whatever spender it named; the page
+renders every spender and amount in plain language first, which is the limit of what it can do.
+
+### T13 — The desk key in the browser bundle
+
+**The attack.** `NEXT_PUBLIC_RELAYER_API_KEY` ships in the dashboard's client bundle. Anyone who can
+load the dashboard can create and withdraw mandates.
+
+**Answer.** Partial, and by construction: the dashboard *is* the desk, so it holds the desk's key.
+Creating a mandate still grants nothing, and withdrawing one closes no exposure.
+
+**Residual — open.** An exposed dashboard is an exposed desk key. Put authentication in front of the
+dashboard before hosting it, or leave the key blank and drive mandates from the API.
+
 ---
 
 ## Explicitly not defended
@@ -185,3 +212,4 @@ state — a rate-limited RPC returning empty must never read as "already deploye
 | Cloud Wallet path unexercised live | custody alternative is compile-checked only | needs an Azure Key Vault (Premium tier for HSM keys); not provisionable without that account |
 | No fuzz on share maths or merkle builder | T10's residual is larger than it should be | `contracts/test` |
 | Contracts unverified on explorers | a reader cannot check the source against the address | deployment |
+| Desk key ships in the dashboard bundle | anyone who can open the dashboard is the desk | `apps/web` |

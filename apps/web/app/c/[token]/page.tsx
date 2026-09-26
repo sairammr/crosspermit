@@ -13,9 +13,9 @@
 import { useParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { formatUnits } from "viem";
-import { useAccount, useSignTypedData } from "wagmi";
+import { useAccount, useReadContracts, useSignTypedData } from "wagmi";
 
-import { approveEntry, prepareIntent, toWire } from "@crosspermit/sdk";
+import { approveEntry, crossPermitAbi, prepareIntent, toWire } from "@crosspermit/sdk";
 import { CROSS_PERMIT, chainById } from "../../../src/config";
 import { type ClientMandate, linkMandate, useMandate } from "../../../src/clients";
 import { HorseMatrix } from "../../../src/dithergraph";
@@ -87,6 +87,27 @@ function Mandate({ client, token, onLinked }: { client: ClientMandate; token: st
   const legs = client.chainIds.map((id) => ({ id, chain: chainById(id) }));
   const known = legs.filter((l) => l.chain).map((l) => l.chain!);
   const unknown = legs.filter((l) => !l.chain).map((l) => l.id);
+
+  // An allowance entry that carries an expiry is an INCREASE, not a set: the contract adds the
+  // delta to whatever is already outstanding. So the cap alone is not what the client ends up
+  // granting, and a page that showed only the cap would be understating the authority it is asking
+  // for whenever anything is already open to the same spender. Read the current figure and show
+  // both.
+  const current = useReadContracts({
+    contracts: known.map((c) => ({
+      address: CROSS_PERMIT,
+      abi: crossPermitAbi,
+      functionName: "allowance" as const,
+      args: [address as `0x${string}`, c.token, c.router],
+      chainId: c.id,
+    })),
+    query: { enabled: Boolean(address) && known.length > 0 },
+  });
+
+  const outstanding = (i: number): bigint | null => {
+    const r = current.data?.[i];
+    return r?.status === "success" ? ((r.result as readonly [bigint, number, number])[0] ?? null) : null;
+  };
 
   const preview = useMemo(() => {
     if (!address || known.length === 0) return null;
@@ -183,20 +204,28 @@ function Mandate({ client, token, onLinked }: { client: ClientMandate; token: st
         </p>
 
         <div style={{ marginTop: 20, display: "grid", gap: 12 }}>
-          {known.map((c) => (
-            <div className="mod-flat" key={c.id} style={{ padding: 16 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
-                <h3 style={{ fontSize: 16 }}>{c.name}</h3>
-                <span className="badge badge-out">{c.id}</span>
+          {known.map((c, i) => {
+            const have = outstanding(i);
+            return (
+              <div className="mod-flat" key={c.id} style={{ padding: 16 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
+                  <h3 style={{ fontSize: 16 }}>{c.name}</h3>
+                  <span className="badge badge-out">{c.id}</span>
+                </div>
+                <div style={{ marginTop: 12 }}>
+                  <Row k="Token" v={c.token} />
+                  <Row k="Spender" v={`${c.router} — Uniswap Universal Router`} />
+                  <Row k="Already granted here" v={have === null ? "—" : formatUnits(have, 6)} />
+                  <Row k="This adds" v={`${formatUnits(cap, 6)} (6dp)`} />
+                  <Row
+                    k="They will be able to spend"
+                    v={have === null ? `${formatUnits(cap, 6)} plus anything already open` : formatUnits(have + cap, 6)}
+                  />
+                  <Row k="Expires" v={`${client.ttlHours}h from signing`} />
+                </div>
               </div>
-              <div style={{ marginTop: 12 }}>
-                <Row k="Token" v={c.token} />
-                <Row k="Spender" v={`${c.router} — Uniswap Universal Router`} />
-                <Row k="Up to" v={`${formatUnits(cap, 6)} (6dp)`} />
-                <Row k="Expires" v={`${client.ttlHours}h from signing`} />
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {unknown.length > 0 && (
@@ -271,7 +300,7 @@ function Head({ client }: { client: ClientMandate }) {
         <span className="label">The bounds you are agreeing to</span>
         <div style={{ marginTop: 14 }}>
           <div className="kv">
-            <span>Per-chain cap</span>
+            <span>Adds, per chain</span>
             <span>{formatUnits(BigInt(client.capUnits), 6)}</span>
           </div>
           <div className="kv">

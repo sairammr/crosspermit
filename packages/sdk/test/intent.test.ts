@@ -8,6 +8,7 @@ import {
   IntentError,
   fromWire,
   intentId,
+  TIMESTAMP_LAG,
   prepareIntent,
   toWire,
   validateIntent,
@@ -192,5 +193,44 @@ describe("intentId", () => {
     expect(intentId({ ...key })).toBe(id);
     expect(intentId({ ...key, root: `0x${"33".repeat(32)}` })).not.toBe(id);
     expect(intentId({ ...key, owner: ROUTER })).not.toBe(id);
+  });
+});
+
+describe("the signed ordering timestamp", () => {
+  test("is behind wall clock, so a chain whose head block is seconds old still accepts it", () => {
+    const now = 1_800_000_000;
+    const { intent } = prepareIntent({
+      crossPermit: XP,
+      owner: OWNER,
+      now,
+      chains: [{ chainId: 1, permits: [approveEntry(USDC, ROUTER, 1n, now + 3600)] }],
+    });
+
+    // CrossPermit reverts with InvalidTimestamp when `timestamp > block.timestamp`. Ethereum builds
+    // a block every twelve seconds, so for most of any second the newest block is already several
+    // seconds behind wall clock — signing with Date.now() fails there and nowhere else.
+    expect(intent.timestamp).toBe(now - TIMESTAMP_LAG);
+    expect(TIMESTAMP_LAG).toBeGreaterThan(12);
+
+    // The deadline is a different clock answering a different question: how long the signature
+    // stays usable. It must not be dragged backwards with the ordering timestamp.
+    expect(intent.deadline).toBe(now + 3600);
+  });
+
+  test("a constant offset keeps two intents in the order they were signed", () => {
+    const one = prepareIntent({
+      crossPermit: XP,
+      owner: OWNER,
+      now: 1_800_000_000,
+      chains: [{ chainId: 1, permits: [approveEntry(USDC, ROUTER, 1n, 1_800_003_600)] }],
+    }).intent;
+    const two = prepareIntent({
+      crossPermit: XP,
+      owner: OWNER,
+      now: 1_800_000_060,
+      chains: [{ chainId: 1, permits: [approveEntry(USDC, ROUTER, 1n, 1_800_003_660)] }],
+    }).intent;
+
+    expect(two.timestamp).toBeGreaterThan(one.timestamp);
   });
 });
