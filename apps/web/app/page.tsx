@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { formatUnits, parseUnits } from "viem";
 import { useAccount, useSignTypedData } from "wagmi";
 
@@ -13,6 +13,7 @@ import {
   useQuota,
   useRecentIntents,
   useRelayerChains,
+  useTreasury,
 } from "../src/relayer";
 
 const TABS = ["permission", "relayer", "treasury", "yield", "audit"] as const;
@@ -25,6 +26,18 @@ export default function Page() {
   const { address, isConnected } = useAccount();
   const [intentId, setIntentId] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+
+  // `?owner=0x...` opens the read-only views for an account without connecting a wallet. A risk
+  // officer reviewing someone else's outstanding authority should not need that account's keys —
+  // and the treasury and audit screens are reads, so there is nothing to sign.
+  const [viewOnly, setViewOnly] = useState<`0x${string}` | undefined>();
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get("owner");
+    if (q && /^0x[0-9a-fA-F]{40}$/.test(q)) setViewOnly(q as `0x${string}`);
+  }, []);
+
+  // Signing always uses the connected wallet. Only the read-only screens fall back to ?owner.
+  const subject = address ?? viewOnly;
 
   return (
     <div className="wrap">
@@ -49,6 +62,12 @@ export default function Page() {
         ))}
       </nav>
 
+      {!address && viewOnly && (
+        <p className="note">
+          Read-only view of <span className="mono">{viewOnly}</span>. Connect a wallet to sign.
+        </p>
+      )}
+
       {!WC_PROJECT_ID && (
         <p className="note">
           No <code>NEXT_PUBLIC_WC_PROJECT_ID</code> set, so WalletConnect is unavailable and only
@@ -71,8 +90,8 @@ export default function Page() {
           }}
         />
       )}
-      {tab === "relayer" && <RelayerTab intentId={intentId} onPick={setIntentId} refreshKey={refreshKey} owner={address} />}
-      {tab === "treasury" && <Treasury owner={address} />}
+      {tab === "relayer" && <RelayerTab intentId={intentId} onPick={setIntentId} refreshKey={refreshKey} owner={subject} />}
+      {tab === "treasury" && <Treasury owner={subject} refreshKey={refreshKey} />}
       {tab === "yield" && <Yield />}
       {tab === "audit" && <Audit intentId={intentId} />}
     </div>
@@ -420,60 +439,100 @@ function LegTable({ status }: { status: IntentStatus }) {
 
 // ---------------------------------------------------------------- treasury
 
-function Treasury({ owner }: { owner?: `0x${string}` }) {
+function Treasury({ owner, refreshKey }: { owner?: `0x${string}`; refreshKey: number }) {
+  const view = useTreasury(owner, refreshKey);
+
   return (
     <div className="panel">
       <h2>Outstanding authority</h2>
       <p className="sub">
-        What this account has authorised, to whom, on which chain — derived from indexed{" "}
-        <span className="mono">Permit</span> events rather than from storage, because storage answers
-        what it is now and an auditor asks how it got there.
+        What this account has authorised, to whom, on which chain — decoded from indexed{" "}
+        <span className="mono">Permit</span> events in the MultiBaas control plane, not read from
+        chain storage. Storage answers what an allowance is now; an auditor asks how it got there.
       </p>
 
-      {!owner ? (
-        <p className="muted">connect a wallet.</p>
-      ) : (
-        <div className="scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>Chain</th>
-                <th>Router (spender)</th>
-                <th>Token</th>
-                <th>Control plane</th>
-              </tr>
-            </thead>
-            <tbody>
-              {CHAINS.map((c) => (
-                <tr key={c.id}>
-                  <td>
-                    {c.name} <span className="dim mono">{c.id}</span>
-                  </td>
-                  <td className="mono">
-                    <a href={`${c.explorer}/address/${c.router}`} target="_blank" rel="noreferrer">
-                      {short(c.router)}
-                    </a>
-                  </td>
-                  <td className="mono">{short(c.token)}</td>
-                  <td>
-                    {c.id === 84532 ? (
-                      <span className="tag ok">multibaas indexed</span>
-                    ) : (
-                      <span className="tag">no deployment</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      {!owner && <p className="muted">connect a wallet.</p>}
+      {owner && view === null && <p className="muted">reading the control plane…</p>}
+      {owner && view === false && (
+        <p className="err">relayer unreachable — start it to read the ledger.</p>
       )}
 
-      <p className="note">
-        Only Base Sepolia has a MultiBaas deployment today — a free-tier account gets one per network.
-        The other two chains are served from their own RPC and carry no control-plane audit trail,
-        which is stated here rather than left as a silent gap.
-      </p>
+      {owner && view && typeof view === "object" && (
+        <>
+          {view.error && <p className="err">{view.error}</p>}
+
+          {view.rows.length === 0 ? (
+            <p className="muted">
+              No indexed authority for this account yet. Indexing starts at the block CrossPermit was
+              registered, so activity from before that is not shown.
+            </p>
+          ) : (
+            <div className="scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Chain</th>
+                    <th>Token</th>
+                    <th>Spender</th>
+                    <th>Amount</th>
+                    <th>State</th>
+                    <th>Signed at</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {view.rows.map((r) => (
+                    <tr key={`${r.chainId}:${r.token}:${r.spender}`}>
+                      <td>
+                        {r.chainName} <span className="dim mono">{r.chainId}</span>
+                      </td>
+                      <td className="mono">{short(r.token)}</td>
+                      <td className="mono">{short(r.spender)}</td>
+                      <td className="mono">{(Number(r.amount) / 1e6).toLocaleString()}</td>
+                      <td>
+                        <span className={`tag ${r.state === "locked" ? "bad" : r.state === "active" ? "ok" : "warn"}`}>
+                          {r.state}
+                        </span>
+                      </td>
+                      <td className="muted">
+                        {r.explorer ? (
+                          <a href={r.explorer} target="_blank" rel="noreferrer">
+                            {new Date(r.timestamp * 1000).toLocaleString()}
+                          </a>
+                        ) : (
+                          new Date(r.timestamp * 1000).toLocaleString()
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div className="grid" style={{ marginTop: 14 }}>
+            <div className="stat">
+              <div className="k">chains with an audit trail</div>
+              <div className="v">{view.covered.length}</div>
+              <div className="n">{view.covered.join(", ") || "none"}</div>
+            </div>
+            <div className="stat">
+              <div className="k">chains without one</div>
+              <div className="v">{view.uncovered.length}</div>
+              <div className="n">{view.uncovered.join(", ") || "none"}</div>
+            </div>
+          </div>
+
+          {view.uncovered.length > 0 && (
+            <p className="note">
+              Chain{view.uncovered.length > 1 ? "s" : ""} {view.uncovered.join(", ")} ha
+              {view.uncovered.length > 1 ? "ve" : "s"} no MultiBaas deployment, so nothing indexes
+              {view.uncovered.length > 1 ? " them" : " it"} and authority there will never appear in
+              this table. That is a gap in the record, not an absence of exposure — a free-tier
+              account gets one deployment per network.
+            </p>
+          )}
+        </>
+      )}
     </div>
   );
 }

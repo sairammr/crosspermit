@@ -150,3 +150,52 @@ export function useQuota(owner: string | undefined, refreshKey: number) {
   }, [owner, refreshKey]);
   return quota;
 }
+
+export type AllowanceRow = {
+  chainId: number;
+  chainName: string;
+  token: string;
+  spender: string;
+  amount: string;
+  expiration: number;
+  timestamp: number;
+  state: "active" | "locked" | "unbounded";
+  explorer?: string;
+};
+
+export type TreasuryView = {
+  owner: string;
+  covered: number[];
+  uncovered: number[];
+  rows: AllowanceRow[];
+  error?: string;
+};
+
+/**
+ * Outstanding authority, from the MultiBaas event ledger via the relayer.
+ *
+ * `uncovered` is part of the payload rather than something the UI infers: a chain absent from the
+ * rows because nothing indexes it looks identical to a chain with no outstanding authority, and a
+ * treasury screen must never let those two read the same.
+ */
+export function useTreasury(owner: string | undefined, refreshKey: number) {
+  const [view, setView] = useState<TreasuryView | null | false>(null);
+
+  useEffect(() => {
+    if (!owner) {
+      setView(null);
+      return;
+    }
+    let live = true;
+    setView(null);
+    fetch(`${RELAYER_URL}/v1/treasury/${owner}`)
+      .then(async (r) => ({ ok: r.ok, body: (await r.json()) as TreasuryView }))
+      .then(({ ok, body }) => live && setView(ok ? body : { ...body, rows: body.rows ?? [] }))
+      .catch(() => live && setView(false));
+    return () => {
+      live = false;
+    };
+  }, [owner, refreshKey]);
+
+  return view;
+}

@@ -5,6 +5,7 @@
 //   GET  /v1/intents/:id/sse    live per-leg event stream
 //   GET  /v1/intents            recent intents
 //   GET  /v1/chains             what this relayer serves, and with whose key
+//   GET  /v1/treasury/:owner    outstanding authority, decoded from the MultiBaas event ledger
 //   GET  /healthz /readyz       liveness and readiness
 import { IntentError, fromWire } from "@crosspermit/sdk";
 
@@ -109,6 +110,35 @@ const server = Bun.serve({
         if (e instanceof IntentError) return json({ error: e.message, code: e.code }, 400);
         console.error("submit failed", e);
         return json({ error: "internal error", code: "internal" }, 500);
+      }
+    }
+
+    // The treasury view, read from MultiBaas rather than from chain storage: storage answers what an
+    // allowance is now, the event ledger answers how it got there, and it carries the timestamp the
+    // owner signed — which is the ordering CrossPermit itself applies.
+    const ledger = path.match(/^\/v1\/treasury\/(0x[0-9a-fA-F]{40})$/);
+    if (ledger) {
+      const owner = ledger[1] as `0x${string}`;
+      const covered = config.treasury.chains();
+      const uncovered = [...config.chains.keys()].filter((id) => !config.treasury.has(id));
+      try {
+        const rows = await config.treasury.allowanceLedgerAllChains(owner);
+        return json({
+          owner,
+          covered,
+          // Named, not omitted. A chain missing from the ledger because nothing indexes it looks
+          // exactly like a chain with no outstanding authority, and those are very different facts.
+          uncovered,
+          rows: rows.map((r) => ({
+            ...r,
+            amount: r.amount.toString(),
+            chainName: config.chains.get(r.chainId)?.name ?? String(r.chainId),
+            explorer: r.txHash ? `${config.chains.get(r.chainId)?.explorer ?? ""}/tx/${r.txHash}` : undefined,
+          })),
+        });
+      } catch (e) {
+        console.error("treasury read failed", e);
+        return json({ error: "control plane unreachable", code: "treasury_unavailable", covered, uncovered }, 502);
       }
     }
 

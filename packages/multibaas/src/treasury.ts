@@ -146,6 +146,14 @@ export class Treasury {
     const rows = new Map<string, AllowanceRow>();
 
     for (const e of events) {
+      // The server-side eventName filter is not exact — asking for "Permit" also returns
+      // NonceInvalidated, which has two inputs rather than six. Decoded positionally, its salt
+      // lands in the token column and its missing fields become a zero allowance dated 1970.
+      // A phantom row on a treasury screen is worse than a missing one, so the name and the shape
+      // are both checked here rather than trusted from the query.
+      if (e.event?.name !== CROSSPERMIT_EVENTS.permit) continue;
+      if ((e.event?.inputs?.length ?? 0) !== 6) continue;
+
       const v = indexInputs(e);
       const evOwner = String(v.owner ?? v[0] ?? "");
       if (evOwner.toLowerCase() !== owner.toLowerCase()) continue;
