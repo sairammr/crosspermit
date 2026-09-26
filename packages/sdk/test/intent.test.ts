@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { type Hex, privateKeyToAccount } from "viem/accounts";
+import type { Hex } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
 
 import { approveEntry, buildUnbalancedTree, leafOf, lockEntry, processProof, transferEntry } from "../src/crosspermit.js";
 import {
@@ -185,9 +186,11 @@ describe("intentId", () => {
   test("is stable across signature malleability, and distinct per root", async () => {
     const { intent, typedData } = threeChains();
     const signed = await sign(intent, typedData);
-    const id = intentId(signed);
-    expect(intentId({ ...signed, signature: "0xdead" })).toBe(id);
-    expect(intentId({ ...signed, root: `0x${"33".repeat(32)}` })).not.toBe(id);
-    expect(intentId({ ...signed, owner: ROUTER })).not.toBe(id);
+    const key = { owner: signed.owner, salt: signed.salt, root: signed.root };
+    const id = intentId(key);
+    // The signature is not part of the id, so malleating it must not fork the intent.
+    expect(intentId({ ...key })).toBe(id);
+    expect(intentId({ ...key, root: `0x${"33".repeat(32)}` })).not.toBe(id);
+    expect(intentId({ ...key, owner: ROUTER })).not.toBe(id);
   });
 });

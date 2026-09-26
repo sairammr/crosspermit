@@ -9,6 +9,7 @@ optimizer = true
 optimizer_runs = 1_000_000
 fs_permissions = [
     { access = "read", path = "./out" },
+    { access = "read", path = "./fixtures" },
     { access = "read", path = "../deployments" },
     { access = "read", path = "../packages/sdk/out" },
 ]

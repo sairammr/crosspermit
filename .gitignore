@@ -14,3 +14,5 @@ apps/web/out/
 apps/relayer/dist/
 apps/relayer/*.sqlite*
 *.log
+contracts/fixtures/
+contracts/foundry-pp/

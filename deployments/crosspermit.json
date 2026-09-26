@@ -1,0 +1,12 @@
+{
+  "contract": "CrossPermit",
+  "address": "0x659C6F027FC4F6b2fF7A18dF1e3C3ec78a99de1B",
+  "salt": "0xb2af67d67b308054b26d8fb210cab127bf699e936190ed01dd9052e7736d1c8c",
+  "factory": "0xce0042B868300000d44A59004Da54A005ffdcf9f",
+  "compiler": { "solc": "0.8.27", "optimizer": true, "runs": 1000000 },
+  "chains": {
+    "ethereum-sepolia": 11155111,
+    "base-sepolia": 84532,
+    "unichain-sepolia": 1301
+  }
+}
