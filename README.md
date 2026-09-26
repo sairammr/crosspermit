@@ -6,7 +6,7 @@
 |---|---|
 | **Live app** | <https://crosspermit.vercel.app/> |
 | **CrossPermit — same address on all three chains** | [`0x659C6F027FC4F6b2fF7A18dF1e3C3ec78a99de1B`](https://sepolia.etherscan.io/address/0x659C6F027FC4F6b2fF7A18dF1e3C3ec78a99de1B) on Ethereum Sepolia · [Base Sepolia](https://sepolia.basescan.org/address/0x659C6F027FC4F6b2fF7A18dF1e3C3ec78a99de1B) · [Optimism Sepolia](https://sepolia-optimism.etherscan.io/address/0x659C6F027FC4F6b2fF7A18dF1e3C3ec78a99de1B) |
-| **Demo video** | _not recorded yet — link goes here_ |
+
 
 A user signs **one** EIP-712 message. That signature sets token allowances and executes transfers on
 Ethereum Sepolia, Base Sepolia and Optimism Sepolia; a relayer submits all three legs from one HTTP
