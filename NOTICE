@@ -1,0 +1,13 @@
+CrossPermit
+Copyright (c) 2026 CrossPermit contributors
+
+This product includes software originally released under the MIT License by
+Eco (Copyright (c) 2025 Eco). The cross-chain allowance core in
+`contracts/src/` is a derivative work: contract, interface, library, module,
+error, event and EIP-712 type names were changed, the signing domain was
+changed, and the file layout was reorganised. The MIT notice above is retained
+because the MIT License requires it; it is not an endorsement or an affiliation.
+
+CrossPermit is ABI-compatible with Uniswap's Permit2 transfer surface by
+design. Permit2 (Copyright (c) 2022 Uniswap Labs) and Uniswap's Universal
+Router are used as unmodified upstream dependencies and are not vendored here.

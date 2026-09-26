@@ -1,0 +1,16 @@
+.DS_Store
+node_modules/
+.env
+.env.*
+!.env.example
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+.work/
+packages/sdk/out/
+packages/sdk/dist/
+apps/web/.next/
+apps/web/out/
+apps/relayer/dist/
+apps/relayer/*.sqlite*
+*.log

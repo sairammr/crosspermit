@@ -1,0 +1,32 @@
+[profile.default]
+solc_version = "0.8.27"
+src = "src"
+test = "test"
+script = "script"
+out = "out"
+libs = ["lib"]
+optimizer = true
+optimizer_runs = 1_000_000
+fs_permissions = [
+    { access = "read", path = "./out" },
+    { access = "read", path = "../deployments" },
+    { access = "read", path = "../packages/sdk/out" },
+]
+
+[fmt]
+line_length = 120
+bracket_spacing = true
+int_types = "long"
+quote_style = "double"
+number_underscore = "thousands"
+multiline_func_header = "params_first"
+sort_imports = true
+single_line_statement_blocks = "multi"
+wrap_comments = true
+
+[rpc_endpoints]
+sepolia = "${RPC_ETH_SEPOLIA}"
+base_sepolia = "${RPC_BASE_SEPOLIA}"
+unichain_sepolia = "${RPC_UNI_SEPOLIA}"
+mainnet = "${RPC_ETH_MAINNET}"
+avalanche = "${RPC_AVALANCHE}"
