@@ -24,6 +24,12 @@ export type ChainInfo = {
    * The client picks one on their own screen, so the list is the menu they are offered. Symbol and
    * decimals are read from the contract rather than written here: a label typed into a config is
    * the one thing on that screen the chain cannot contradict.
+   *
+   * This list is also, and less obviously, the limit of every venue the desk can ever reach. The
+   * mandate screen writes one permit entry per token picked here, to the router and to the
+   * LiquidityDesk; a pool currency absent from this list is granted to nobody, and its pool reads
+   * "mandate too small" at every size, for every client, forever. `pools.ts` asserts the two stay
+   * in step at import — see the check at the foot of that file.
    */
   tokens: Address[];
   /** Brand colour of the chain, for the badge on a token's icon. */
@@ -49,7 +55,15 @@ export const CHAINS: ChainInfo[] = [
     explorer: "https://sepolia.basescan.org",
     router: "0x73ed10744987B65fAf6BD6FFdF1039Cb7eF97002",
     token: "0x974727EA649Ee0EfBB6A1b1A584614838B832cB3",
-    tokens: ["0x974727EA649Ee0EfBB6A1b1A584614838B832cB3", "0x4c309fD174629eE7Ac8eEceae8669FBaFD9953A2"],
+    tokens: [
+      // The lifecycle script's own mock pair, which the seeded pool trades.
+      "0x974727EA649Ee0EfBB6A1b1A584614838B832cB3",
+      "0x4c309fD174629eE7Ac8eEceae8669FBaFD9953A2",
+      // Circle's own Base Sepolia USDC and the canonical WETH predeploy: the two currencies of
+      // Uniswap's own v4 USDC/WETH pool. Without these on the menu that pool is unreachable.
+      "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+      "0x4200000000000000000000000000000000000006",
+    ],
   },
   {
     id: 11155420,
@@ -61,6 +75,8 @@ export const CHAINS: ChainInfo[] = [
     explorer: "https://sepolia-optimism.etherscan.io",
     router: "0x2E03912851a0e442C77Ce00506aA7664E45560Ac",
     token: "0x903321dB019c620A9907E76e29927E0e7ACc4764",
+    // Only the mock pair: Optimism Sepolia has no canonical v4 pool at all, so there is no third
+    // currency here for a mandate to be short of.
     tokens: ["0x903321dB019c620A9907E76e29927E0e7ACc4764", "0xC2aB86958061e874DD211a9d7c6860D2Bf5C92F1"],
   },
   {
@@ -73,7 +89,14 @@ export const CHAINS: ChainInfo[] = [
     explorer: "https://sepolia.etherscan.io",
     router: "0x7B68d6740C5C66967271966E62fd1A3E01743E3c",
     token: "0x496C39F509a1ec2B63cBE689e7FD52D56Ee02C17",
-    tokens: ["0x496C39F509a1ec2B63cBE689e7FD52D56Ee02C17", "0x98feA3a8eC2c4075470dF4d5c497E2DFF31feD88"],
+    tokens: [
+      // The lifecycle script's own mock pair, which the seeded pool trades.
+      "0x496C39F509a1ec2B63cBE689e7FD52D56Ee02C17",
+      "0x98feA3a8eC2c4075470dF4d5c497E2DFF31feD88",
+      // The currencies of the one hookless ERC20/ERC20 canonical v4 pool on Ethereum Sepolia.
+      "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+      "0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14",
+    ],
   },
 ];
 

@@ -19,6 +19,10 @@ export type Act = {
 
 export type Point = { t: number; v: number };
 
+/** How many decimals a token carries. Defaults to 6 — the only assumption this file used to make. */
+export type Decimals = (token?: string) => number;
+const SIX: Decimals = () => 6;
+
 /**
  * Authority outstanding over time, in token units.
  *
@@ -26,8 +30,13 @@ export type Point = { t: number; v: number };
  * event carries the resulting allowance, not a delta. A lock or a clear takes it to zero. The
  * series is the sum across pairs after each event, which is the only number a risk committee ever
  * asks for: how much authority was outstanding at time T.
+ *
+ * `decimals` exists because this file used to divide every amount by 1e6. That held exactly as
+ * long as every token in the book was USDC; the first 18-decimal token made the total 1e12 too
+ * large and the chart a solid block. Pass a resolver, and note that summing across tokens is only
+ * meaningful when they are the same asset — `token` is how a caller keeps it that way.
  */
-export function authorityOverTime(acts: Act[], token?: string): Point[] {
+export function authorityOverTime(acts: Act[], token?: string, decimals: Decimals = SIX): Point[] {
   const rows = acts
     .filter((a) => a.timestamp && (!token || a.token?.toLowerCase() === token.toLowerCase()))
     .sort((a, b) => a.timestamp! - b.timestamp!);
@@ -37,7 +46,7 @@ export function authorityOverTime(acts: Act[], token?: string): Point[] {
 
   for (const a of rows) {
     const key = `${a.chainId}:${(a.token ?? "").toLowerCase()}`;
-    if (a.kind === "granted") held.set(key, Number(a.amount ?? 0) / 1e6);
+    if (a.kind === "granted") held.set(key, Number(a.amount ?? 0) / 10 ** decimals(a.token));
     else if (a.kind === "locked" || a.kind === "cleared") held.set(key, 0);
     else continue; // a burned salt retracts an unsubmitted permit; nothing outstanding changed
     let total = 0;
@@ -51,12 +60,12 @@ export function authorityOverTime(acts: Act[], token?: string): Point[] {
 }
 
 /** Totals per chain, for a bar row. Keys are chain ids in the order given. */
-export function perChain(acts: Act[], chainIds: number[]): number[] {
+export function perChain(acts: Act[], chainIds: number[], decimals: Decimals = SIX): number[] {
   return chainIds.map((id) => {
     const held = new Map<string, number>();
     for (const a of acts.filter((x) => x.chainId === id).sort((x, y) => (x.timestamp ?? 0) - (y.timestamp ?? 0))) {
       const key = (a.token ?? "").toLowerCase();
-      if (a.kind === "granted") held.set(key, Number(a.amount ?? 0) / 1e6);
+      if (a.kind === "granted") held.set(key, Number(a.amount ?? 0) / 10 ** decimals(a.token));
       else if (a.kind === "locked" || a.kind === "cleared") held.set(key, 0);
     }
     let total = 0;

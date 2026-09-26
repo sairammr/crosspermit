@@ -299,32 +299,102 @@
   background: var(--alert);
 }
 
-/* One grant, one card: who, on what, and how much of it is left. */
-.client-page .grant-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+/* ---- who can spend this ----
+   One bay per counterparty, its grants as rows inside it. The name is printed once at the top
+   instead of once per card, which is the whole difference between two answers and seventeen. */
+.client-page .counterparties {
+  display: flex;
+  flex-direction: column;
   gap: 12px;
   margin: 12px 0;
 }
-.client-page .grant {
+
+.client-page .cp {
   border-radius: var(--r-inset);
   padding: 12px 14px;
   background: var(--socket);
   box-shadow: var(--sh-sunk);
 }
-.client-page .grant.odd {
+
+/* An allowance to something this dashboard cannot name is the one row that must not blend in. */
+.client-page .cp.odd {
   background: var(--alert-wash);
 }
-.client-page .grant header {
+
+.client-page .cp-head {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
   flex-wrap: wrap;
+  padding-bottom: 8px;
   margin-bottom: 4px;
+  border-bottom: 1px solid var(--line-soft);
 }
-.client-page .grant header strong {
+
+.client-page .cp-head strong {
   font-size: 13px;
   font-weight: 600;
+}
+
+.client-page .cp-rows {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Fixed columns, so chain, asset, meter, figure and expiry line up down the group and the eye can
+   run a single column rather than re-parsing every row. */
+.client-page .cp-row {
+  display: grid;
+  grid-template-columns: minmax(64px, auto) minmax(44px, auto) minmax(60px, 1fr) minmax(96px, auto) minmax(78px, auto);
+  align-items: center;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.client-page .cp-row:last-child {
+  border-bottom: 0;
+}
+
+.client-page .cp-where {
+  text-decoration: none;
+}
+.client-page .cp-where:hover .chain-tag {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.client-page .cp-sym {
+  font-size: 12px;
+}
+
+.client-page .cp-fig {
+  text-align: right;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.client-page .cp-row .tag {
+  justify-self: end;
+}
+
+@media (max-width: 640px) {
+  .client-page .cp-row {
+    grid-template-columns: auto auto 1fr;
+    row-gap: 4px;
+  }
+  .client-page .cp-row .meter {
+    grid-column: 1 / -1;
+    order: 3;
+  }
+}
+
+/* The counterparty behind a ranked row, held back so the asset still leads it. */
+.client-page .rk-who {
+  color: var(--ink-4);
+  white-space: nowrap;
 }
 
 /* A chain, or an asset on one chain, as a tile. */
@@ -440,51 +510,319 @@
   padding: 18px;
 }
 
-/* ---- the view keys ----
-   Three readings of one mandate, as a key bank: console keys, same material as the rail above, so
-   switching view feels like the same hardware as navigating. The selected key is graphite — the
-   kit's second face — and never signal, because signal is reserved for the one thing on the screen
-   that moves money, which lives in the venue panel. */
+/* ---- the bento ----
+   Bays of different sizes on one panel, laid out on a four-column grid. Sizes are assigned by what
+   a tile has to say, not to fill a row: the hero holds a readout and needs width, the two lamps
+   beside it hold one figure each, and the time series is the only thing here that earns full width.
+   Every tile is the same material as the rest of the product — the raised bay from the console
+   kit — so the page reads as one device rather than as cards. */
 
-.client-page .subtabs {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin: 0 0 16px;
-}
-
-.client-page .subtabs .btn.on {
-  --top: #4a4741;
-  --face: #35322d;
-  --foot: #2a2724;
-  --wall: #1a1815;
-  --fg: #f3f1ed;
-}
-.client-page .subtabs .btn.on .cap {
-  box-shadow:
-    inset 0 0 0 1px rgba(0, 0, 0, 0.4),
-    inset 0 1px 0 rgba(255, 255, 255, 0.16),
-    inset 0 -2px 2px rgba(0, 0, 0, 0.3),
-    0 1px 0 rgba(0, 0, 0, 0.2);
-}
-
-/* A count on a key is a reading, not a label: it takes the socket treatment at chip scale. */
-.client-page .subtabs .count {
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  padding: 1px 5px;
-  border-radius: var(--r-xs);
-  background: rgba(0, 0, 0, 0.09);
-}
-.client-page .subtabs .btn.on .count {
-  background: rgba(255, 255, 255, 0.14);
-}
-
-/* ---- the book, in figures ----
-   A tile row opens the overview. Six sunk readings, not a wall: the manager's first question is how
-   much there is and how much of it is reachable, and that is answerable before any chart. */
-.client-page .book {
+.client-page .bento {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
   margin-bottom: 16px;
+}
+
+.client-page .bento .bay {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 16px 18px;
+  border-radius: var(--r-bay);
+  background: var(--bay-face);
+  box-shadow: var(--sh-bay);
+}
+
+/* Row one: what there is (wide), how long it lasts, how big the book is.
+   Row two: the one series (wide) beside the one rate.
+   Row three: the two distributions, equal halves.
+   Spans are assigned so tiles sharing a row carry comparable content — a two-row bay next to a
+   seventeen-row one is what left half this grid empty. */
+.client-page .b-assets {
+  grid-column: span 2;
+}
+.client-page .b-runway,
+.client-page .b-book,
+.client-page .b-rate {
+  grid-column: span 1;
+}
+.client-page .b-trend {
+  grid-column: span 3;
+}
+.client-page .b-chains,
+.client-page .b-util {
+  grid-column: span 2;
+}
+
+@media (max-width: 1180px) {
+  .client-page .bento {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .client-page .b-assets,
+  .client-page .b-trend,
+  .client-page .b-chains,
+  .client-page .b-util {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 620px) {
+  .client-page .bento {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .client-page .bento .bay {
+    grid-column: span 1 !important;
+  }
+}
+
+/* The asset switch on the trend bay. Chips, not keys: a key is an action and this only changes
+   which series is drawn. */
+.client-page .chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.client-page .chip {
+  appearance: none;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  border-radius: var(--r-xs);
+  background: var(--panel);
+  padding: 2px 8px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+
+.client-page .chip.on {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--on-ink);
+}
+
+.client-page .chip:focus-visible {
+  box-shadow: var(--ring);
+}
+
+.client-page .b-book .kv-list {
+  margin: 0;
+}
+
+/* The silkscreen legend, as printed on the kit: mono, tracked, and never competing with a figure. */
+.client-page .bento .silk {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+
+.client-page .bento .sec-head {
+  margin-bottom: 0;
+}
+
+.client-page .bento .big {
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 1.05;
+  letter-spacing: -0.015em;
+}
+
+.client-page .bento .note {
+  margin: auto 0 0;
+}
+
+/* ---- the readout ----
+   The one green surface in the product. It is used exactly once per screen, for the figure the
+   whole page is about, and it carries the kit's scanline so it reads as lit rather than printed. */
+.client-page .lcd {
+  position: relative;
+  border-radius: var(--r-inset);
+  padding: 14px 16px;
+  background: linear-gradient(180deg, #b3baae, #c6ccc1 40%, #b3baae);
+  box-shadow:
+    inset 0 3px 6px rgba(30, 40, 25, 0.3),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.35),
+    0 1px 0 rgba(255, 255, 255, 0.7);
+  color: #24291f;
+  font-family: var(--mono);
+}
+
+.client-page .lcd::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: var(--r-inset);
+  pointer-events: none;
+  background: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.05) 0 1px, transparent 1px 3px);
+  opacity: 0.5;
+}
+
+.client-page .lcd-row {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+/* Sized to the bay, not to a fixed step: a figure is allowed to shrink, never to run past the
+   glass. `min-width: 0` on the row is what lets the flex child actually shrink. */
+.client-page .lcd .big {
+  font-size: clamp(22px, 4.4vw, 38px);
+  letter-spacing: 0.02em;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.client-page .lcd-row > * {
+  min-width: 0;
+}
+
+.client-page .lcd .ghost {
+  color: #8f9789;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.client-page .lcd .tag {
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  color: #4a5142;
+}
+
+/* ---- lamps ----
+   A state with its own colour and its own word. Never colour alone: the lamp is read at a glance
+   and the label is what makes it unambiguous when it is not. */
+.client-page .led {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+
+.client-page .led i {
+  width: 11px;
+  height: 11px;
+  flex: none;
+  border-radius: 50%;
+  background: #bdb9b1;
+  box-shadow:
+    inset 0 1px 1px rgba(0, 0, 0, 0.35),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.4),
+    0 0 0 3px rgba(0, 0, 0, 0.05);
+}
+
+.client-page .led.ok i {
+  background: var(--ok);
+  box-shadow: inset 0 1px 1px rgba(0, 50, 25, 0.4), 0 0 0 3px rgba(23, 104, 63, 0.14), 0 0 5px rgba(23, 104, 63, 0.35);
+}
+.client-page .led.on i {
+  background: var(--accent);
+  box-shadow: inset 0 1px 1px rgba(120, 40, 0, 0.4), 0 0 0 3px rgba(244, 81, 8, 0.16), 0 0 5px rgba(244, 81, 8, 0.42);
+}
+.client-page .led.fault i {
+  background: var(--alert-ink);
+  box-shadow: inset 0 1px 1px rgba(80, 0, 0, 0.4), 0 0 0 3px rgba(196, 22, 24, 0.14), 0 0 5px rgba(196, 22, 24, 0.38);
+}
+
+/* ---- segmented meter ----
+   A share is counted, not measured. Twelve cells cut into the panel: the eye reads "nine of twelve"
+   without a scale, which is the thing a bar scaled to its own maximum could never say. */
+.client-page .seg {
+  display: flex;
+  gap: 3px;
+  height: 18px;
+  padding: 3px;
+  border-radius: 6px;
+  background: var(--socket);
+  box-shadow: inset 0 2px 4px rgba(40, 30, 20, 0.22);
+}
+
+.client-page .seg i {
+  flex: 1;
+  border-radius: 2px;
+  background: #cfcbc3;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+.client-page .seg i.on {
+  background: var(--accent);
+  box-shadow: inset 0 1px 0 rgba(255, 198, 166, 0.5);
+}
+.client-page .seg.s-ok i.on {
+  background: var(--ok);
+}
+.client-page .seg.s-bad i.on {
+  background: var(--alert-ink);
+}
+
+/* ---- ranked rows ----
+   Three categories were never a chart. A label, a counted meter, the figure and its share, ranked
+   largest first, answers "where is it concentrated" in one pass — which four dither plots did not. */
+.client-page .ranks {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.client-page .rank {
+  display: grid;
+  grid-template-columns: minmax(132px, 1.2fr) minmax(70px, 1.4fr) auto 40px;
+  align-items: center;
+  gap: 10px;
+}
+
+/* A two-line label: what it is, then where and who. */
+.client-page .rk-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.client-page .rk-sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.client-page .rk-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.client-page .rk-fig {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+}
+
+.client-page .rk-pct {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The trend plot gets real height. The old 84px strip was the reason nothing could be read off it. */
+.client-page .plot.tall {
+  height: 168px;
 }
 
 /* ---- the blotter ----

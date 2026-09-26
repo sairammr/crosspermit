@@ -56,3 +56,18 @@ test("consumption is a clamped fraction and unknown remaining reads as nothing s
   expect(consumption([{ granted: 10, remaining: undefined }])).toEqual([0]);
   expect(consumption([{ granted: 0, remaining: 0 }])).toEqual([0]);
 });
+
+// A book with an 18-decimal token in it. Before `decimals`, this file divided everything by 1e6,
+// so one WETH grant read as a trillion and swamped every USDC figure it was summed with.
+test("authorityOverTime scales each token by its own decimals", () => {
+  const WETH = "0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14";
+  const USDC = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238";
+  const dp = (t?: string) => (t?.toLowerCase() === WETH.toLowerCase() ? 18 : 6);
+  const acts: Act[] = [
+    { chainId: 1, kind: "granted", timestamp: 100, amount: "1000000", token: USDC },
+    { chainId: 1, kind: "granted", timestamp: 200, amount: "1000000000000000000", token: WETH },
+  ];
+  expect(authorityOverTime(acts, undefined, dp).map((p) => p.v)).toEqual([1, 2]);
+  // The old behaviour, kept as the default, is what the 6dp-only callers still rely on.
+  expect(authorityOverTime(acts).map((p) => p.v)).toEqual([1, 1_000_000_000_001]);
+});

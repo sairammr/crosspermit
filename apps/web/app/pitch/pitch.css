@@ -377,3 +377,32 @@
 .lp .slide.ink svg circle:not([fill="var(--accent)"]) {
   fill: var(--on-ink);
 }
+
+/* ---------- deck type scale: one notch down ----------
+   A slide is read from four metres away, but it is also read *while someone is talking over it*.
+   Smaller type here is not a density trick — it keeps a headline to one line and lets the
+   one-line explanation under it sit as support rather than compete. */
+.lp.deck {
+  --t-display: clamp(32px, 4vw, 50px);
+  --t-h2: clamp(22px, 2.6vw, 33px);
+  --t-h3: 17px;
+  --t-lede: 13.5px;
+  --t-body: 13px;
+  --t-label: 11px;
+  --t-micro: 10px;
+}
+.lp.deck .lede {
+  font-size: var(--t-lede);
+  line-height: 1.5;
+  max-width: 56ch;
+}
+.lp.deck .deck-title .hook {
+  font-size: clamp(15px, 1.5vw, 18px);
+  max-width: 52ch;
+}
+.lp.deck .steprow h3 {
+  font-size: 14px;
+}
+.lp.deck .slide.dense h2 {
+  font-size: clamp(21px, 2.3vw, 29px);
+}

@@ -124,6 +124,11 @@ function Grant({ client, token, onLinked }: { client: ClientMandate; token: stri
   const { signTypedDataAsync } = useSignTypedData();
 
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  // A signed mandate is a finished screen, not a closed account. The client can still be asked to
+  // cover a token their first signature never named — a pool currency added to the menu since, for
+  // one — and there is no way to widen a permit that has already been signed. So the only honest
+  // route to a wider mandate is a second signature, and this opens the same form again for it.
+  const [again, setAgain] = useState(false);
   const [amount, setAmount] = useState("");
   const [hours, setHours] = useState(client.ttlHours || 720);
 
@@ -247,8 +252,19 @@ function Grant({ client, token, onLinked }: { client: ClientMandate; token: stri
       // Binding turns an invitation into a client on the desk's screen, and tells them the terms
       // this client chose. If it fails the permission is still live on chain — say that, rather
       // than implying nothing happened.
+      // The desk binds an owner once, by design: the conditional UPDATE behind `link` is what stops
+      // two wallets racing the same invitation. A second grant is therefore not a re-link — the
+      // allowance lands on chain and the desk's row keeps the terms of the first signature, which
+      // is what it should record. Calling link here would fail and report a false alarm.
+      if (again) {
+        onLinked();
+        return;
+      }
       const bound = await linkMandate(token, address, id, {
-        capUnits: (unitsFor(chosen[0]!.i) ?? 0n).toString(),
+        // The desk reads `capUnits` as a 6dp figure everywhere it prints or recommends against it,
+        // so record the nominal amount at 6dp — never the first chosen token's own base units. The
+        // menu now offers 18dp WETH, and one WETH recorded raw would reach the desk as a trillion.
+        capUnits: parseUnits(amount.trim(), 6).toString(),
         ttlHours: hours,
         chainIds: [...new Set(chosen.map((h) => h.chain.id))],
       });
@@ -278,10 +294,15 @@ function Grant({ client, token, onLinked }: { client: ClientMandate; token: stri
   }
 
   // ---- already signed, by someone (maybe you) ----
-  if (client.status === "active" && !intentId) {
+  if (client.status === "active" && !intentId && !again) {
     const mine = Boolean(address && client.owner && address.toLowerCase() === client.owner.toLowerCase());
     return (
-      <Sheet title={client.name} label="Signed">
+      <Sheet
+        title={client.name}
+        label="Signed"
+        action={{ label: "Grant another token", onClick: () => setAgain(true) }}
+        foot="Signing again widens what the desk may spend — it never narrows it. A permit already signed cannot be edited, so covering a token the first signature did not name takes a second one."
+      >
         <dl className="kv">
           <Row k="Signed by" v={client.owner ? short(client.owner) : "—"} m={mine ? "your connected wallet" : address ? `you are connected as ${short(address)}` : "connect a wallet to check"} />
           <Row k="Granted" v={client.capUnits ? `${group(formatUnits(BigInt(client.capUnits), 6))} per token` : "—"} m={client.chainIds.map((id) => chainById(id)?.name ?? id).join(" · ")} />

@@ -168,12 +168,7 @@ export default function Pitch() {
           <HorseMatrix cols={22} size={120} />
           <span className="label">CrossPermit · {CHAINS.length} live testnets</span>
           <h1>One signature. Every chain.</h1>
-          <p className="hook">
-            Permit2 made approval a signature. It is still <b>one signature per chain</b> — so a desk
-            running a client&apos;s capital on four chains asks them to sign four times, and unwinds in
-            four gas markets.
-          </p>
-          <span className="micro">0:00 — 0:15</span>
+          <p className="hook">Permit2 made approval a signature. It is still <b>one signature per chain</b>.</p>
         </div>
       </section>
 
@@ -194,32 +189,21 @@ export default function Pitch() {
                 <span className="n">01</span>
                 <div>
                   <h3>What Permit2 fixed</h3>
-                  <p>
-                    One canonical contract at <code>{PERMIT2.slice(0, 12)}…</code> holds the allowance, so a token
-                    is approved once and every integrator spends through a signature — with a cap, an expiry and a
-                    nonce instead of an unbounded <code>approve</code>. Uniswap&apos;s Universal Router is built on it.
-                  </p>
+                  <p className="lede">One canonical contract holds the allowance: approve once, then grant by signature, with a cap and an expiry.</p>
                 </div>
               </div>
               <div className="steprow">
                 <span className="n">02</span>
                 <div>
                   <h3>What it did not</h3>
-                  <p>
-                    Its EIP-712 domain is built from <code>block.chainid</code>, so the digest is different on every
-                    chain, and the allowance it grants lives in that chain&apos;s storage. Identical address,
-                    identical code, identical intent — and the signature is void one chain over.
-                  </p>
+                  <p className="lede">Its EIP-712 domain is built from <code>block.chainid</code>, so the digest is different on every chain.</p>
                 </div>
               </div>
               <div className="steprow">
                 <span className="n">03</span>
                 <div>
                   <h3>So permission is the thing that does not travel</h3>
-                  <p>
-                    Tokens bridge. Messages bridge. <em>Authority</em> does not: there is no object a client can sign
-                    once that means &ldquo;this desk may trade this much of mine, until Friday, wherever I hold it.&rdquo;
-                  </p>
+                  <p className="lede">Tokens bridge. Messages bridge. Authority does not.</p>
                 </div>
               </div>
             </div>
@@ -279,35 +263,22 @@ export default function Pitch() {
             <div className="mod statcard hot">
               <span className="label">Liquidity fragmentation</span>
               <h3 style={{ marginTop: 10 }}>Capital is pre-positioned, per chain</h3>
-              <p className="lede" style={{ marginTop: 10 }}>
-                Because authority stops at the chain boundary, a desk cannot reach idle client capital on the chain
-                where the opportunity is. So every chain carries its own buffer, sized for its own worst day, and the
-                book is as fragmented as the permissions are.
-              </p>
+                  <p className="lede">Authority stops at the chain boundary, so every chain funds its own idle buffer.</p>
             </div>
             <div className="mod statcard">
               <span className="label">Revocation is a race</span>
               <h3 style={{ marginTop: 10 }}>N transactions, N gas markets</h3>
-              <p className="lede" style={{ marginTop: 10 }}>
-                A counterparty goes bad and closing the exposure is one transaction per chain, queued independently,
-                while it deteriorates. The slowest chain sets the loss.
-              </p>
+                  <p className="lede">Closing an exposure is one transaction per chain. The slowest chain sets the loss.</p>
             </div>
             <div className="mod statcard">
               <span className="label">Onboarding</span>
               <h3 style={{ marginTop: 10 }}>N wallet sessions per client</h3>
-              <p className="lede" style={{ marginTop: 10 }}>
-                Four approvals, four audit lines, four chances to sign the wrong spender — for one commercial
-                agreement that was never per-chain in the first place.
-              </p>
+                  <p className="lede">Four approvals and four audit lines, for one agreement that was never per-chain.</p>
             </div>
             <div className="mod statcard">
               <span className="label">Bridges do not fix it</span>
               <h3 style={{ marginTop: 10 }}>They move tokens, not permission</h3>
-              <p className="lede" style={{ marginTop: 10 }}>
-                Moving the collateral to the authority adds custody, latency and a new trust assumption. The
-                cheaper fix is to move the authority to the collateral.
-              </p>
+                  <p className="lede">Moving collateral to the authority adds custody and latency. Move the authority instead.</p>
             </div>
           </div>
         </div>
@@ -322,47 +293,28 @@ export default function Pitch() {
               <span className="clock">0:55 — 1:10</span>
             </div>
             <h2>A fund cannot take custody, and cannot ask for a signature per chain per week.</h2>
-            <p className="lede">
-              Retail signs for itself — one wallet, one chain at a time. An institution manages{" "}
-              <em>other people&apos;s</em> money under an agreement, and the agreement was never per-chain.
-            </p>
           </div>
 
           <div className="grid g4">
             <div className="mod">
               <span className="label">Fiduciary</span>
               <h3 style={{ marginTop: 10 }}>Custody is the thing they must not take</h3>
-              <p className="lede" style={{ marginTop: 10 }}>
-                Moving client assets into a desk-controlled wallet is a custody event, with its own licensing,
-                insurance and balance-sheet consequences. A bounded, revocable allowance over assets that never move
-                is the only shape that avoids it — and it has to reach every chain the desk trades.
-              </p>
+                  <p className="lede">A desk-controlled wallet is a custody event. A bounded, revocable allowance is not.</p>
             </div>
             <div className="mod">
               <span className="label">Capital efficiency</span>
               <h3 style={{ marginTop: 10 }}>An idle buffer on every chain</h3>
-              <p className="lede" style={{ marginTop: 10 }}>
-                Permission that stops at a chain boundary forces capital to sit where the authority already is. The
-                desk funds a buffer per chain, each sized for its own worst day, and the sum of those buffers is
-                dead weight the client pays for.
-              </p>
+                  <p className="lede">Capital has to sit where the authority already is, and the client pays for the dead weight.</p>
             </div>
             <div className="mod">
               <span className="label">Risk</span>
               <h3 style={{ marginTop: 10 }}>Revocation has to be one act</h3>
-              <p className="lede" style={{ marginTop: 10 }}>
-                A risk officer pulling a mandate at 3am should not be racing four mempools. Partially revoked —
-                closed on two chains, open on two — is the state nobody has a runbook for, and today it is the
-                default.
-              </p>
+                  <p className="lede">Closed on two chains and open on two is the state nobody has a runbook for.</p>
             </div>
             <div className="mod">
               <span className="label">Audit</span>
               <h3 style={{ marginTop: 10 }}>One mandate, one record</h3>
-              <p className="lede" style={{ marginTop: 10 }}>
-                Compliance has to answer &ldquo;what was this desk permitted to do, and when&rdquo; with a document,
-                not with four explorers reconciled by hand. One signature is one auditable grant.
-              </p>
+                  <p className="lede">Compliance needs one auditable grant, not four explorers reconciled by hand.</p>
             </div>
           </div>
         </div>
@@ -377,10 +329,7 @@ export default function Pitch() {
               <span className="clock">1:10 — 1:25</span>
             </div>
             <h2>CrossPermit is Permit2&apos;s interface with the chain constraint removed.</h2>
-            <p className="lede">
-              Same allowance shape — cap, expiry, spender. Same <code>transferFrom</code> selectors, so Uniswap&apos;s
-              own router spends it unmodified. One signature covers every chain, and one retracts it everywhere.
-            </p>
+            <p className="lede">Same cap, expiry and spender. Same <code>transferFrom</code> selectors, so Uniswap&apos;s own router spends it unmodified.</p>
           </div>
 
           <div className="diagram" aria-label="CrossPermit system architecture">
@@ -492,10 +441,10 @@ export default function Pitch() {
               <path className="wire sig" d="M440 253 H452" />
               <path className="wire sig" d="M500 240 V 162" />
               <text className="t sm" x="560" y="246">
-                the root is the signed object · chainId lives inside each leaf, never in the signature
+                the root is the signed object
               </text>
               <text className="t sm" x="560" y="262">
-                leaves computed in the browser · a leaf from an RPC would choose what the user signs
+                chainId lives in the leaf, never in the signature
               </text>
 
               <path className="wire sig" d="M140 128 H180" />
@@ -528,27 +477,17 @@ export default function Pitch() {
               <h3 style={{ marginTop: 10 }}>
                 <code>chainId = 1</code>, fixed
               </h3>
-              <p className="lede" style={{ marginTop: 10 }}>
-                Permit2 derives its domain from <code>block.chainid</code>. CrossPermit pins it — which is safe only
-                because <code>verifyingContract</code> is still in the domain and is the same address everywhere.
-              </p>
+              <p className="lede">Safe only because <code>verifyingContract</code> is still in the domain, and is the same address everywhere.</p>
             </div>
             <div className="mod">
               <span className="label">02 · the address</span>
               <h3 style={{ marginTop: 10 }}>ERC-2470, same init code, same salt</h3>
-              <p className="lede" style={{ marginTop: 10 }}>
-                Optimism Sepolia was added after the fact and landed on the same address, with a byte-identical
-                domain separator, with no coordination. That is the invariant the scheme rests on, tested by
-                accident.
-              </p>
+                  <p className="lede">Optimism Sepolia was added later and landed on the same address, with no coordination.</p>
             </div>
             <div className="mod">
               <span className="label">03 · the payload</span>
               <h3 style={{ marginTop: 10 }}>A root over per-chain bundles</h3>
-              <p className="lede" style={{ marginTop: 10 }}>
-                Each chain verifies only its own leaf and learns nothing about the others. Leaves are computed in the
-                browser — a leaf that arrived from an RPC would let the endpoint choose what the user signs.
-              </p>
+                  <p className="lede">Each chain verifies only its own leaf, and learns nothing about the others.</p>
             </div>
           </div>
 
@@ -586,10 +525,7 @@ export default function Pitch() {
               <span className="clock">reference</span>
             </div>
             <h2>One root. One proof per chain.</h2>
-            <p className="lede">
-              The signed object is a merkle root over per-chain permit bundles. Each chain verifies only its own
-              leaf, and learns nothing about the others.
-            </p>
+            <p className="lede">The signed object is a merkle root over per-chain permit bundles.</p>
           </div>
 
           <div className="grid g2">
@@ -663,46 +599,28 @@ export default function Pitch() {
                 <span className="n">01</span>
                 <div>
                   <h3>The leaf is computed client-side. Always.</h3>
-                  <p>
-                    The browser computes each <code>hashChainPermits</code> leaf itself; an <code>eth_call</code> to
-                    the chain is kept only as an equality assertion. A leaf that arrived <em>from</em> an RPC would
-                    let a hostile endpoint choose what the user signs.
-                  </p>
+                  <p className="lede">A leaf that arrived from an RPC would let the endpoint choose what the user signs.</p>
                 </div>
               </div>
               <div className="steprow">
                 <span className="n">02</span>
                 <div>
                   <h3>Left-leaning tree, dearest chain last</h3>
-                  <p>
-                    Leaves fold with OpenZeppelin sorted-pair hashing, so the on-chain verifier is{" "}
-                    <code>MerkleProof</code> and nothing bespoke. The last leaf sits one hop from the root, so it
-                    carries the shortest proof and the least calldata.
-                  </p>
+                  <p className="lede">Sorted-pair hashing, so the verifier is OpenZeppelin <code>MerkleProof</code>. Last leaf, shortest proof.</p>
                 </div>
               </div>
               <div className="steprow">
                 <span className="n">03</span>
                 <div>
                   <h3>Four modes in one entry shape</h3>
-                  <p>
-                    An entry is <code>(modeOrExpiration, tokenKey, account, amountDelta)</code>. A future timestamp
-                    increases an allowance until then; the reserved low values are <code>TRANSFER</code>,{" "}
-                    <code>DECREASE</code>, <code>LOCK</code> and <code>UNLOCK</code>. A grant and a kill switch are
-                    the same signed structure — which is why revocation also costs exactly one signature.
-                  </p>
+                  <p className="lede"><code>TRANSFER</code>, <code>DECREASE</code>, <code>LOCK</code>, <code>UNLOCK</code> — a grant and a kill switch are one structure.</p>
                 </div>
               </div>
               <div className="steprow">
                 <span className="n">04</span>
                 <div>
                   <h3>Salt, deadline, and a timestamp set behind the clock</h3>
-                  <p>
-                    The salt is a non-sequential nonce, so mandates are concurrent and an unsubmitted one can be
-                    burned before it is ever redeemed. CrossPermit rejects a permit that orders itself into the
-                    future, so the SDK signs at <code>now − 90s</code> — a constant offset that leaves ordering
-                    between intents untouched.
-                  </p>
+                  <p className="lede">A non-sequential nonce, signed at <code>now − 90s</code> so a stale head block cannot reject it.</p>
                 </div>
               </div>
             </div>
@@ -724,39 +642,23 @@ export default function Pitch() {
                 permit2 := CrossPermit
               </span>
             </h2>
-            <p className="lede">
-              The selectors match Permit2&apos;s, so the payment path is unmodified source. A <code>V4_SWAP</code>{" "}
-              settles through <code>SETTLE_ALL → PERMIT2.transferFrom</code> against Uniswap&apos;s live PoolManager —
-              which is what proves the substitution on the path a dApp actually takes.
-            </p>
           </div>
 
           <div className="grid g3">
             <div className="mod">
               <span className="label">Trade</span>
               <h3 style={{ marginTop: 10 }}>Uniswap v4 swap</h3>
-              <p className="lede" style={{ marginTop: 10 }}>
-                996,999 out for 1,000,000 in, every run — the 0.3% fee. Allowance ends at zero, and the router holds
-                no plain ERC-20 approval, so the input can only have come through CrossPermit.
-              </p>
+                  <p className="lede">The allowance ends at zero and the router holds no plain ERC-20 approval.</p>
             </div>
             <div className="mod">
               <span className="label">Invest</span>
               <h3 style={{ marginTop: 10 }}>v4 liquidity, Aave v4, equities</h3>
-              <p className="lede" style={{ marginTop: 10 }}>
-                <code>add</code> pays both sides with <code>transferFrom(client → PoolManager)</code> and keys the
-                position by the client&apos;s address. 10,000 USDC into Aave v4&apos;s real Hub returns 10,032.65
-                after thirty days.
-              </p>
+                  <p className="lede"><code>add</code> pays both sides from the client&apos;s allowance; the position is keyed by their address.</p>
             </div>
             <div className="mod">
               <span className="label">The asymmetry</span>
               <h3 style={{ marginTop: 10 }}>In, never out</h3>
-              <p className="lede" style={{ marginTop: 10 }}>
-                <code>add</code> may be called by anyone, because it can only move tokens from an account whose
-                mandate names it, and only into the pool. <code>remove</code> and <code>collect</code> are{" "}
-                <code>msg.sender</code>-scoped: the desk has nothing to withdraw and nothing to sweep.
-              </p>
+                  <p className="lede"><code>remove</code> and <code>collect</code> are <code>msg.sender</code>-scoped. The desk has nothing to sweep.</p>
             </div>
           </div>
         </div>
@@ -771,46 +673,26 @@ export default function Pitch() {
               <span className="clock">1:40 — 2:25</span>
             </div>
             <h2>One client, onboarded and allocated, from one signature.</h2>
+            <p className="lede">Live, against three testnets.</p>
           </div>
 
           <div className="mod">
             {[
-              ["0:00", "I add a client on the desk and it gives me one link.", "/app → add client → copy link"],
-              [
-                "0:08",
-                "This is what they see: every chain, every spender, every cap, in plain language — computed on the page before a wallet opens.",
-                "open /c/<token>",
-              ],
-              ["0:18", "They sign. Once. Sixty-five bytes.", "wallet prompt · WOW MOMENT"],
-              [
-                "0:24",
-                "It lands on all three chains from that one signature. Same address, same digest, three proofs.",
-                "SSE stream fills · three explorer links",
-              ],
-              [
-                "0:34",
-                "Now I allocate — Uniswap's own router settles a real v4 swap out of that allowance, and the desk never touched their tokens. No second signature anywhere.",
-                "swap → confirms",
-              ],
-              [
-                "0:44",
-                "They change their mind: one signature locks the desk on every chain, and the same spend now reverts.",
-                "LOCK → retry → revert",
-              ],
-            ].map(([t, say, act]) => (
+              ["0:00", "Add a client, copy the link"],
+              ["0:08", "They open it — every chain, spender and cap, before the wallet"],
+              ["0:18", "They sign. Once."],
+              ["0:24", "Three chains, three proofs, three explorer links"],
+              ["0:34", "Allocate — a real v4 swap out of that allowance"],
+              ["0:44", "One signature locks every chain — the same spend reverts"],
+            ].map(([t, say]) => (
               <div className="beat" key={t}>
                 <time>{t}</time>
                 <div>
                   <p className="say">{say}</p>
-                  <p className="do">{act}</p>
                 </div>
               </div>
             ))}
           </div>
-          <p className="lede" style={{ marginTop: 12 }}>
-            Fallbacks: the recorded run, then <code>lifecycle.ts</code> against the live testnets, then the confirmed
-            explorer links on the next slide.
-          </p>
         </div>
       </section>
 
@@ -823,6 +705,7 @@ export default function Pitch() {
               <span className="clock">2:25 — 2:40</span>
             </div>
             <h2>Deployed, and proved live.</h2>
+            <p className="lede">Every figure below is one this repository produced. Nothing is illustrative.</p>
           </div>
 
           <div className="scroll">
@@ -887,30 +770,22 @@ export default function Pitch() {
           <h2>
             <DotText text="One signature. Every chain." size={32} />
           </h2>
-          <p className="hook" style={{ color: "#b6b3ad" }}>
-            The signature does not get longer at thirty chains — proof length grows as log₂(N), and no leg ever reads
-            another chain&apos;s state. There is no bridge, no message, nothing to wait on.
-          </p>
 
           <div className="grid g3" style={{ marginTop: 4, textAlign: "left", width: "100%" }}>
             <div className="mod-flat">
               <span className="label">We need · 1</span>
-              <p className="lede" style={{ marginTop: 8 }}>
-                A mainnet pilot: one desk, one client, one chain pair, a capped mandate.
-              </p>
+              <h3 style={{ marginTop: 8 }}>Mainnet pilot</h3>
+                  <p className="lede">One desk, one client, one chain pair, a capped mandate.</p>
             </div>
             <div className="mod-flat">
               <span className="label">We need · 2</span>
-              <p className="lede" style={{ marginTop: 8 }}>
-                An audit of the core — four contracts and one signed type.
-              </p>
+              <h3 style={{ marginTop: 8 }}>Audit of the core</h3>
+                  <p className="lede">Four contracts and one signed type.</p>
             </div>
             <div className="mod-flat">
               <span className="label">We need · 3</span>
-              <p className="lede" style={{ marginTop: 8 }}>
-                Indexer coverage on every chain a partner desk trades. A chain with no audit trail cannot carry a
-                mandate.
-              </p>
+              <h3 style={{ marginTop: 8 }}>Indexer coverage</h3>
+                  <p className="lede">A chain with no audit trail cannot carry a mandate.</p>
             </div>
           </div>
 
@@ -922,9 +797,6 @@ export default function Pitch() {
               <span className="cap">Read the code</span>
             </a>
           </div>
-          <span className="micro">
-            CrossPermit · {CROSS_PERMIT} · testnet only, never fund these addresses with mainnet value
-          </span>
         </div>
       </section>
     </div>

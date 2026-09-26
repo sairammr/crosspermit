@@ -189,6 +189,33 @@ export const POOLS: PoolInfo[] = [
   },
 ];
 
+/**
+ * Fail at import if a pool names a currency no mandate can be granted over.
+ *
+ * The LiquidityDesk settles with `CrossPermit.transferFrom`, so it can only ever move a token the
+ * client's signature named — and the mandate screen writes one permit entry per token in that
+ * chain's `tokens` list. A pool currency missing from that list therefore has an allowance of zero
+ * that nothing on any screen can raise, and the card reads "mandate too small" at every size, for
+ * every client, permanently. That is a config mismatch wearing the costume of a live market
+ * condition, which is the worst kind of bug to read off a dashboard. Break the build instead.
+ */
+for (const p of POOLS) {
+  const chain = CHAINS.find((c) => c.id === p.chainId);
+  if (!chain) continue;
+  const granted = new Set(chain.tokens.map((t) => t.toLowerCase()));
+  for (const [side, currency] of [
+    ["currency0", p.key.currency0],
+    ["currency1", p.key.currency1],
+  ] as const) {
+    if (!granted.has(currency.toLowerCase())) {
+      throw new Error(
+        `${chain.name}: pool ${p.sym0}/${p.sym1} names ${side} ${currency}, which is not in CHAINS.tokens — ` +
+          `no mandate can grant over it, so that pool would read "mandate too small" forever. Add it to config.ts.`,
+      );
+    }
+  }
+}
+
 /** The venue a chain leads with: Uniswap's own pool where there is one. */
 export const poolOn = (chainId: number) =>
   POOLS.find((p) => p.chainId === chainId && p.source === "uniswap") ?? POOLS.find((p) => p.chainId === chainId);

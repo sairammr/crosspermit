@@ -15,7 +15,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { type Address, formatUnits, parseUnits } from "viem";
+import { type Address, formatUnits, parseAbi, parseUnits } from "viem";
 import { useAccount, useReadContracts, useSwitchChain, useWriteContract } from "wagmi";
 
 import { crossPermitAbi } from "@crosspermit/sdk";
@@ -35,6 +35,12 @@ import {
   positionSlot,
 } from "../../../../src/pools";
 import { openAppKit } from "../../../../src/wagmi";
+
+/** Only the one function. A balance is all this card needs from a currency it already knows. */
+const erc20Abi = parseAbi([
+  "function balanceOf(address) view returns (uint256)",
+  "function allowance(address,address) view returns (uint256)",
+]);
 
 const short = (s: string, n = 6) => (s.length > 2 * n ? `${s.slice(0, n)}…${s.slice(-4)}` : s);
 const fmt = (n: number, dp = 4) => n.toLocaleString("en-US", { maximumFractionDigits: dp });
@@ -192,6 +198,25 @@ function Pool({
       },
       { address: CROSS_PERMIT, abi: crossPermitAbi, functionName: "allowance", args: [owner!, currency0, desk], chainId: pool.chainId },
       { address: CROSS_PERMIT, abi: crossPermitAbi, functionName: "allowance", args: [owner!, currency1, desk], chainId: pool.chainId },
+      // The two holdings. An allowance is only a permission — `LiquidityDesk` settles with
+      // `transferFrom`, so a covered mandate over a balance the client does not have mints nothing
+      // and reverts at the token. Reading both lets the card say which of the two is missing
+      // instead of offering a key that always fails.
+      { address: currency0, abi: erc20Abi, functionName: "balanceOf", args: [owner!], chainId: pool.chainId },
+      { address: currency1, abi: erc20Abi, functionName: "balanceOf", args: [owner!], chainId: pool.chainId },
+      // The base approval, and the layer this screen was blind to.
+      //
+      // There are two allowances between a client and this desk, and satisfying one says nothing
+      // about the other. The mandate is `CrossPermit.allowance(owner, token, spender)` — what the
+      // client signed. Under it, CrossPermit still has to move the tokens with the ERC20's own
+      // `transferFrom`, which needs `token.allowance(owner, CROSS_PERMIT)` — the one-time approval
+      // the client makes to CrossPermit itself, exactly as Permit2 is approved once per token.
+      //
+      // Reading only the mandate is what let this card say "covered" over a token CrossPermit
+      // cannot touch. The wallet then fails to estimate gas, falls back to a huge limit, and the
+      // RPC rejects it for exceeding its cap — so the popup opens and nothing happens.
+      { address: currency0, abi: erc20Abi, functionName: "allowance", args: [owner!, CROSS_PERMIT], chainId: pool.chainId },
+      { address: currency1, abi: erc20Abi, functionName: "allowance", args: [owner!, CROSS_PERMIT], chainId: pool.chainId },
     ],
     query: { enabled: Boolean(owner), refetchInterval: 30_000 },
   });
@@ -232,8 +257,41 @@ function Pool({
     return { liquidity: BigInt(liquidity), amount0, amount1, max0: cap(amount0), max1: cap(amount1) };
   }, [slot0?.sqrtPriceX96, size, ticks.tickLower, ticks.tickUpper, pool.dec0, pool.dec1]);
 
-  const covered =
-    quote !== null && liveAllowance(allowance0) >= quote.max0 && liveAllowance(allowance1) >= quote.max1;
+  const held0 = at(5) as bigint | undefined;
+  const held1 = at(6) as bigint | undefined;
+  const base0 = at(7) as bigint | undefined;
+  const base1 = at(8) as bigint | undefined;
+
+  /**
+   * Why this size cannot be added — or null when it can.
+   *
+   * Permission and property are separate failures and are never collapsed into one message: a
+   * mandate the client can widen is a different problem from a balance only a faucet can fix, and
+   * a card that says "mandate too small" about an empty wallet sends the desk to ask for the wrong
+   * thing. An unread balance blocks nothing; unknown is not zero, and the transaction is the
+   * authority on that.
+   */
+  const blocked = useMemo(() => {
+    if (quote === null) return "enter a size";
+    const short0 = liveAllowance(allowance0) < quote.max0;
+    const short1 = liveAllowance(allowance1) < quote.max1;
+    if (short0 || short1) return `mandate too small · ${short0 ? pool.sym0 : ""}${short0 && short1 ? " and " : ""}${short1 ? pool.sym1 : ""}`;
+    // Checked in the order the transaction itself fails in: the mandate is read by CrossPermit,
+    // then CrossPermit's own approval by the token, then the balance by the transfer. Naming the
+    // first thing that would actually revert is the only ordering that sends anyone to the right
+    // remedy.
+    const unapproved0 = base0 !== undefined && base0 < quote.max0;
+    const unapproved1 = base1 !== undefined && base1 < quote.max1;
+    if (unapproved0 || unapproved1)
+      return `CrossPermit not approved for ${unapproved0 ? pool.sym0 : ""}${unapproved0 && unapproved1 ? " and " : ""}${unapproved1 ? pool.sym1 : ""}`;
+    const empty0 = held0 !== undefined && held0 < quote.max0;
+    const empty1 = held1 !== undefined && held1 < quote.max1;
+    if (empty0 || empty1) return `client holds too little ${empty0 ? pool.sym0 : ""}${empty0 && empty1 ? " and " : ""}${empty1 ? pool.sym1 : ""}`;
+    return null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quote, allowance0?.[0], allowance0?.[1], allowance1?.[0], allowance1?.[1], held0, held1, base0, base1, pool.sym0, pool.sym1]);
+
+  const covered = blocked === null;
 
   if (slot0 && anchor === null) setAnchor(slot0.tick);
 
@@ -396,9 +454,7 @@ function Pool({
             disabled={!covered || busy !== null}
             onClick={() => void addLiquidity()}
             title={
-              covered
-                ? "pull under the client's mandate and mint the position to them"
-                : "the mandate does not cover this size on this chain"
+              covered ? "pull under the client's mandate and mint the position to them" : (blocked ?? "")
             }
           >
             <span className="cap">{busy === "add" ? "Adding…" : "Add liquidity"}</span>
@@ -421,7 +477,7 @@ function Pool({
           >
             <span className="cap">{busy === "remove" ? "Withdrawing…" : "Take it back"}</span>
           </button>
-          <span className={`tag ${covered ? "ok" : "warn"}`}>{covered ? "covered by the mandate" : "mandate too small"}</span>
+          <span className={`tag ${covered ? "ok" : "warn"}`}>{covered ? "covered by the mandate" : blocked}</span>
         </div>
 
         <p className="micro pc-quote">
@@ -437,6 +493,20 @@ function Pool({
             <dt className="micro">Standing to the desk</dt>
             <dd>
               {formatUnits(standing0, pool.dec0)} {pool.sym0} · {formatUnits(standing1, pool.dec1)} {pool.sym1}
+            </dd>
+          </div>
+          <div className="kv">
+            <dt className="micro">CrossPermit approved</dt>
+            <dd>
+              {base0 === undefined ? "—" : base0 >= (quote?.max0 ?? 0n) ? "yes" : "no"} {pool.sym0} ·{" "}
+              {base1 === undefined ? "—" : base1 >= (quote?.max1 ?? 0n) ? "yes" : "no"} {pool.sym1}
+            </dd>
+          </div>
+          <div className="kv">
+            <dt className="micro">Client holds</dt>
+            <dd>
+              {held0 === undefined ? "—" : formatUnits(held0, pool.dec0)} {pool.sym0} ·{" "}
+              {held1 === undefined ? "—" : formatUnits(held1, pool.dec1)} {pool.sym1}
             </dd>
           </div>
           <div className="kv">
@@ -472,7 +542,13 @@ function Pool({
         <p className="note">
           {covered
             ? "Desk adds; only the client's own wallet can collect or take back."
-            : "Mandate too small here — only the client can raise it."}
+            : blocked?.startsWith("mandate")
+              ? "Only the client can raise it — send them their link again and have them grant this token."
+              : blocked?.startsWith("CrossPermit not approved")
+              ? "The mandate is signed, but CrossPermit has never been approved on this token — a one-time ERC20 approve from the client's own wallet, the same way Permit2 is approved once. Without it CrossPermit cannot call transferFrom, and the wallet cannot even estimate the gas."
+              : blocked?.startsWith("client holds")
+                ? "Permission is there; the tokens are not. Fund the client's wallet on this chain, or quote a smaller size."
+                : "Enter a size to quote this position."}
         </p>
 
         {error && (
