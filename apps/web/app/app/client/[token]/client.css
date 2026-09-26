@@ -882,3 +882,10 @@
 .client-page .blotter .meter {
   min-width: 64px;
 }
+
+/* A deployment fault is not a data state: it takes the alert ground so it is never read as one of
+   the screen's own empty panels. */
+.desk-fault {
+  background: var(--alert-wash);
+  border-radius: var(--r-bay);
+}

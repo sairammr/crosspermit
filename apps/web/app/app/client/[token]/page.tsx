@@ -27,10 +27,11 @@ import { type Address, formatUnits, parseAbi } from "viem";
 import { useReadContracts } from "wagmi";
 
 import { crossPermitAbi } from "@crosspermit/sdk";
-import { type ClientMandate, useMandate } from "../../../../src/clients";
+import { type ClientMandate, useDeskHealth, useMandate } from "../../../../src/clients";
 import { CHAINS, CROSS_PERMIT, chainById } from "../../../../src/config";
 import { DitherArea, HorseMatrix } from "../../../../src/dithergraph";
 import { Rail } from "../../../rail";
+import { DeskFault } from "../../desk-fault";
 import { POOLS } from "../../../../src/pools";
 import { type ActivityRow, useActivity, useRelayerChains, useTreasury } from "../../../../src/relayer";
 import { recommend } from "../../../../src/strategies";
@@ -165,6 +166,7 @@ export default function ClientPage() {
   // The views are keys on the rail, not a second row of keys under it. One key bank per screen:
   // a page with its own tab strip below the rail was two navigations for one decision.
   const [tab, setTab] = useState<TabKey>("overview");
+  const health = useDeskHealth();
 
   return (
     <div className="wrap">
@@ -196,6 +198,10 @@ export default function ClientPage() {
         }
       />
 
+      {/* Said before anything else, and instead of the panels below blaming the relayer: if the
+          desk layer refused to start, nothing downstream of it was ever asked. */}
+      {health.kind === "misconfigured" && <DeskFault message={health.message} />}
+
       {state.kind === "loading" && <p className="note">Reading the mandate…</p>}
       {state.kind === "missing" && (
         <div className="panel">
@@ -203,7 +209,7 @@ export default function ClientPage() {
           <p className="note">That link was withdrawn or never existed. Nothing was granted under it.</p>
         </div>
       )}
-      {state.kind === "offline" && (
+      {state.kind === "offline" && health.kind !== "misconfigured" && (
         <div className="panel">
           <h2>The desk is unreachable</h2>
           <p className="note">

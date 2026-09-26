@@ -7,8 +7,9 @@ import { CHAINS, CROSS_PERMIT, WC_PROJECT_ID } from "../../src/config";
 import { ProveOwnership } from "../../src/session-ui";
 import { HorseMatrix } from "../../src/dithergraph";
 import { Rail } from "../rail";
-import { useClients } from "../../src/clients";
+import { useClients, useDeskHealth } from "../../src/clients";
 import { ClientsTab } from "./desk";
+import { DeskFault } from "./desk-fault";
 import { Overview } from "./overview";
 import {
   useIntentStream,
@@ -64,6 +65,7 @@ export default function Page() {
   const clients = useClients(refreshKey);
   const recent = useRecentIntents(refreshKey);
   const { status: inFlight } = useIntentStream(intentId);
+  const health = useDeskHealth();
 
   return (
     <div className="wrap">
@@ -92,6 +94,10 @@ export default function Page() {
           <ProveOwnership onChange={() => setRefreshKey((k) => k + 1)} />
         }
       />
+
+      {/* A desk layer that refused to start explains itself here, rather than letting every panel
+          below report an empty book as though the book were empty. */}
+      {health.kind === "misconfigured" && <DeskFault message={health.message} />}
 
       <div className="row" style={{ justifyContent: "space-between", marginBottom: 16 }}>
         <span className="micro">

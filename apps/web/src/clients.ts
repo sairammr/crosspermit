@@ -122,3 +122,41 @@ export async function linkMandate(
   const body = (await res.json().catch(() => ({}))) as { error?: string };
   return { ok: false, error: body.error ?? `HTTP ${res.status}` };
 }
+
+/**
+ * Whether the desk layer itself is configured, as opposed to the relayer being quiet.
+ *
+ * Every read in this app folds a failure into `false`, and every screen renders that as "the
+ * control plane is silent". That is right when the relayer does not answer and wrong — misleading,
+ * and expensively so — when the desk refused before it ever placed the call. A serverless host
+ * with no `TURSO_DATABASE_URL` answers 503 `not_configured` to everything, and the app blamed the
+ * relayer for a database that was never reachable.
+ *
+ * The desk already writes a precise, actionable sentence for this case. This hook does nothing but
+ * carry it to the screen. Any other failure is left alone: it is the relayer's story to tell, and
+ * the existing panels already tell it.
+ */
+export function useDeskHealth(): { kind: "checking" } | { kind: "ok" } | { kind: "misconfigured"; message: string } {
+  const [state, setState] = useState<{ kind: "checking" } | { kind: "ok" } | { kind: "misconfigured"; message: string }>({
+    kind: "checking",
+  });
+
+  useEffect(() => {
+    let live = true;
+    fetch(`${DESK_API}/chains`, { headers: headers() })
+      .then(async (r) => {
+        if (r.ok) return { kind: "ok" as const };
+        const body = (await r.json().catch(() => null)) as { code?: string; error?: string } | null;
+        return body?.code === "not_configured"
+          ? { kind: "misconfigured" as const, message: body.error ?? "The desk layer is not configured." }
+          : { kind: "ok" as const };
+      })
+      .then((s) => live && setState(s))
+      .catch(() => live && setState({ kind: "ok" }));
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  return state;
+}
