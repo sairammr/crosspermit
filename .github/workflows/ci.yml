@@ -6,7 +6,7 @@ on:
   pull_request:
 
 # The offline suite must stay offline. Anything needing a live chain is opt-in behind FORK=1 and
-# runs in the separate `fork` job, so a flaky public RPC can never fail a pull request.
+# runs in a separate job, so an RPC hiccup cannot fail the offline gate.
 jobs:
   offline:
     runs-on: ubuntu-latest
@@ -22,38 +22,10 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
-      - name: typecheck
-        run: |
-          for pkg in packages/sdk packages/multibaas apps/relayer; do
-            echo "--- $pkg"
-            (cd "$pkg" && bunx tsc --noEmit)
-          done
-
-      - name: unit tests
-        run: |
-          (cd packages/sdk && bun test)
-          (cd apps/relayer && bun test)
-
-      - name: build contracts
-        run: cd contracts && forge build
-
-      # Fixtures pin the TypeScript client against the compiled contract, so they must be generated
-      # from this commit rather than committed — a stale fixture would hide a client that drifted.
-      - name: generate fixtures
-        run: bun run packages/sdk/scripts/gen-fixtures.ts
-
-      - name: forge tests
-        run: cd contracts && forge test -vv
-
-      # The rebrand is a product requirement, not a style preference: any reappearance of the
-      # upstream name in the product surface fails the build.
-      - name: no upstream branding in the product surface
-        run: |
-          if grep -rin "permit3" contracts/src packages apps --include="*.sol" --include="*.ts" --include="*.tsx"; then
-            echo "::error::upstream branding found in the product surface"
-            exit 1
-          fi
-          echo "clean"
+      # One gate, one definition. CI runs the same script a developer runs, so the two can never
+      # drift into disagreeing about what "green" means.
+      - name: offline suite
+        run: script/test.sh
 
       - name: no secrets committed
         run: |
@@ -63,10 +35,32 @@ jobs:
           fi
           echo "clean"
 
+  # Testnet fork proofs. These cover LiquidityDesk, YieldRouter, EquityDesk and V4PoolSeeder, which
+  # the offline suite barely touches — a break in them has to be able to fail a pull request.
   fork:
     runs-on: ubuntu-latest
-    # Live-chain proofs. Allowed to fail the job without blocking a merge, because the failure may
-    # be a rate-limited public RPC rather than a real regression — but it is never silently skipped.
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: foundry-rs/foundry-toolchain@v1
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run packages/sdk/scripts/gen-fixtures.ts
+
+      - name: router and liquidity forks against the testnets
+        env:
+          RPC_ETH_SEPOLIA: ${{ secrets.RPC_ETH_SEPOLIA || 'https://ethereum-sepolia-rpc.publicnode.com' }}
+          RPC_BASE_SEPOLIA: ${{ secrets.RPC_BASE_SEPOLIA || 'https://base-sepolia-rpc.publicnode.com' }}
+          RPC_OP_SEPOLIA: ${{ secrets.RPC_OP_SEPOLIA || 'https://optimism-sepolia-rpc.publicnode.com' }}
+        run: cd contracts && FORK=1 forge test --match-path 'test/{Router,Liquidity}Fork.t.sol' -vv
+
+  mainnet-fork:
+    runs-on: ubuntu-latest
+    # The only fork allowed to fail without blocking a merge: it reads mainnet through a public RPC,
+    # so a rate limit here is not a regression. It is never silently skipped.
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
@@ -79,10 +73,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run packages/sdk/scripts/gen-fixtures.ts
 
-      - name: fork tests against live chains
+      - name: treasury fork against mainnet
         env:
-          RPC_ETH_SEPOLIA: ${{ secrets.RPC_ETH_SEPOLIA || 'https://ethereum-sepolia-rpc.publicnode.com' }}
-          RPC_BASE_SEPOLIA: ${{ secrets.RPC_BASE_SEPOLIA || 'https://base-sepolia-rpc.publicnode.com' }}
-          RPC_UNI_SEPOLIA: ${{ secrets.RPC_UNI_SEPOLIA || 'https://sepolia.unichain.org' }}
           RPC_ETH_MAINNET: ${{ secrets.RPC_ETH_MAINNET || 'https://ethereum-rpc.publicnode.com' }}
-        run: cd contracts && FORK=1 forge test --match-path 'test/*Fork*' -vv
+        run: cd contracts && FORK=1 forge test --match-path 'test/TreasuryFork.t.sol' -vv

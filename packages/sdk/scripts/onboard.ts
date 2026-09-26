@@ -87,7 +87,12 @@ async function main() {
         readJson(`deployments/token-${c.key}.json`).address as Address,
         readJson(`deployments/token2-${c.key}.json`).address as Address,
       ],
-      router: readJson(`deployments/router-${c.key}.json`).universalRouter as Address,
+      // Both spenders a real mandate names. The page grants the router AND the LiquidityDesk, so a
+      // script that granted only the router would prove a path no client actually walks.
+      spenders: [
+        readJson(`deployments/router-${c.key}.json`).universalRouter as Address,
+        readJson(`deployments/liquidity-${c.key}.json`).address as Address,
+      ],
       public: createPublicClient({ transport }),
       wallet: createWalletClient({ account: client, transport }),
     };
@@ -124,19 +129,22 @@ async function main() {
   check(offer.capUnits === "" && offer.ttlHours === 0, "there is nothing to accept — the terms are the client's to set");
 
   // What the page's own controls produce: every token on every chain, one shared amount, one expiry.
-  const grants = chains.flatMap((c) => c.tokens.map((token) => ({ chain: c, token })));
-  console.log(`       choosing  ${grants.length} tokens across ${chains.length} chains, ${formatUnits(CAP, 6)} each, ${TTL_HOURS}h\n`);
+  const grants = chains.flatMap((c) => c.tokens.flatMap((token) => c.spenders.map((spender) => ({ chain: c, token, spender }))));
+  console.log(
+    `       choosing  ${grants.length} grants across ${chains.length} chains` +
+      ` (${chains[0]!.tokens.length} tokens x ${chains[0]!.spenders.length} spenders), ${formatUnits(CAP, 6)} each, ${TTL_HOURS}h\n`,
+  );
 
   // ---------------------------------------------------------------- 3. the client signs, once
   console.log("3. the client signs once");
-  const before = await Promise.all(grants.map((g) => allowanceOf(g.chain, g.token, client.address)));
+  const before = await Promise.all(grants.map((g) => allowanceOf(g.chain, g.token, g.spender, client.address)));
 
   const now = Math.floor(Date.now() / 1000);
   const expiry = now + TTL_HOURS * 3600;
 
   // Built with the same call the mandate page uses, so this script proves the path a real client
-  // takes rather than a parallel one that could drift from it. Two tokens on one chain are one leg
-  // with two entries — one signature, and one transaction per chain rather than per token.
+  // takes rather than a parallel one that could drift from it. Every token times every spender on
+  // one chain is ONE leg — one signature, and one transaction per chain rather than per grant.
   const { intent } = prepareIntent({
     crossPermit: CROSS_PERMIT,
     owner: client.address,
@@ -144,7 +152,7 @@ async function main() {
     ttl: 3600,
     chains: chains.map((c) => ({
       chainId: c.chainId,
-      permits: c.tokens.map((token) => approveEntry(token, c.router, CAP, expiry)),
+      permits: c.tokens.flatMap((token) => c.spenders.map((spender) => approveEntry(token, spender, CAP, expiry))),
     })),
   });
 
@@ -163,8 +171,8 @@ async function main() {
     "each chain agrees with the leaf computed on the client",
   );
   check(
-    intent.legs.every((leg) => leg.bundle.permits.length === 2),
-    "each chain's leg carries a permit entry per token chosen on it",
+    intent.legs.every((leg, i) => leg.bundle.permits.length === chains[i]!.tokens.length * chains[i]!.spenders.length),
+    "each chain's leg carries a permit entry per token per spender chosen on it",
   );
   check(
     intent.legs.every((leg) => processProof(leafOf(leg.bundle), leg.proof) === intent.root),
@@ -210,9 +218,11 @@ async function main() {
 
   // ---------------------------------------------------------------- 5. the desk records the client
   console.log("5. the desk records who answered, and on what terms");
+  // Binding is the DESK's write, not the client's, so it carries the desk key. The client's own
+  // authority came from their signature, which the relayer already matched against the intent.
   const linked = await fetch(`${RELAYER}/v1/clients/${link}/link`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: deskHeaders(),
     body: JSON.stringify({
       owner: client.address,
       intentId: result.intentId,
@@ -239,7 +249,7 @@ async function main() {
   // Someone else holding the same link must not be able to repoint it at their own address.
   const second = await fetch(`${RELAYER}/v1/clients/${link}/link`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: deskHeaders(),
     body: JSON.stringify({ owner: "0x000000000000000000000000000000000000bEEF", intentId: result.intentId }),
   });
   check(second.status >= 400, "a second claim on the same link is refused", `HTTP ${second.status}`);
@@ -247,7 +257,7 @@ async function main() {
   // And an intent this owner did not sign must not be bindable to them.
   const forged = await fetch(`${RELAYER}/v1/clients/${link}/link`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: deskHeaders(),
     body: JSON.stringify({ owner: "0x000000000000000000000000000000000000bEEF", intentId: "not-an-intent" }),
   });
   check(forged.status >= 400, "an unknown intent cannot bind a mandate", `HTTP ${forged.status}`);
@@ -255,7 +265,7 @@ async function main() {
 
   // ---------------------------------------------------------------- 6. read the authority back
   console.log("6. the authority is real, on every token, on every chain");
-  const after = await Promise.all(grants.map((g) => allowanceOf(g.chain, g.token, client.address)));
+  const after = await Promise.all(grants.map((g) => allowanceOf(g.chain, g.token, g.spender, client.address)));
   for (let i = 0; i < grants.length; i++) {
     const g = grants[i]!;
     const granted = after[i]!.amount - before[i]!.amount;
@@ -265,12 +275,12 @@ async function main() {
     // plus the cap — which is why the mandate page has to show both numbers, not just the cap.
     check(
       granted === CAP,
-      `${g.chain.name} ${g.token.slice(0, 8)}: the allowance rose by exactly the amount chosen`,
+      `${g.chain.name} ${g.token.slice(0, 8)} -> ${g.spender.slice(0, 8)}: the allowance rose by exactly the amount chosen`,
       `${formatUnits(before[i]!.amount, 6)} -> ${formatUnits(after[i]!.amount, 6)} (delta ${formatUnits(granted, 6)})`,
     );
     check(
       Math.abs(after[i]!.expiration - expiry) <= 1,
-      `${g.chain.name} ${g.token.slice(0, 8)}: expiry is the one the client agreed to`,
+      `${g.chain.name} ${g.token.slice(0, 8)} -> ${g.spender.slice(0, 8)}: expiry is the one the client agreed to`,
       `${after[i]!.expiration} vs ${expiry}`,
     );
   }
@@ -289,15 +299,16 @@ async function main() {
 }
 
 async function allowanceOf(
-  c: { public: ReturnType<typeof createPublicClient>; router: Address },
+  c: { public: ReturnType<typeof createPublicClient> },
   token: Address,
+  spender: Address,
   owner: Address,
 ): Promise<{ amount: bigint; expiration: number }> {
   const [amount, expiration] = (await c.public.readContract({
     address: CROSS_PERMIT,
     abi: crossPermitAbi,
     functionName: "allowance",
-    args: [owner, token, c.router],
+    args: [owner, token, spender],
   })) as [bigint, number, number];
   return { amount, expiration };
 }

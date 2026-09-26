@@ -50,7 +50,7 @@ const env = (k: string, fallback?: string): string => {
 export async function loadConfig(repoRoot: URL): Promise<{ config: RelayerConfig; banner: string[] }> {
   const crossPermit = JSON.parse(readFileSync(new URL("deployments/crosspermit.json", repoRoot), "utf8")).address as Address;
 
-  const wanted = env("RELAYER_CHAINS", "11155111,84532,1301")
+  const wanted = env("RELAYER_CHAINS", "11155111,84532,11155420")
     .split(",")
     .map((s) => Number(s.trim()))
     .filter(Number.isFinite);

@@ -20,3 +20,6 @@ apps/web/.next/
 apps/web/next-env.d.ts
 apps/web/tsconfig.tsbuildinfo
 .vercel
+
+# The desk's local SQLite store, when it is not pointed at Turso.
+.desk.db*

@@ -224,34 +224,38 @@ export default function Pitch() {
               </div>
             </div>
 
-            <div className="diagram" aria-label="Why a Permit2 signature is chain-bound">
-              <svg viewBox="0 0 520 250" role="img" style={{ minWidth: 430 }}>
-                <title>One Permit2 deployment per chain, one domain separator each</title>
-                <rect className="bx sig" x="150" y="8" width="220" height="42" rx="5" />
-                <text className="t" x="166" y="26">
-                  PERMIT2 · one address
-                </text>
-                <text className="t sm" x="166" y="42">
-                  {PERMIT2.slice(0, 22)}…
-                </text>
-                {["ETHEREUM", "BASE", "OPTIMISM"].map((n, i) => (
-                  <g key={n}>
-                    <rect className="bx" x="24" y={88 + i * 54} width="472" height="40" rx="5" />
-                    <text className="t" x="40" y={112 + i * 54}>
-                      {n}
-                    </text>
-                    <text className="t sm" x="150" y={112 + i * 54}>
-                      domain = f(chainId {i === 0 ? "1" : i === 1 ? "8453" : "10"})
-                    </text>
-                    <text className="t sm" x="320" y={112 + i * 54}>
-                      → its own digest, its own allowance
-                    </text>
-                    <path className="wire dash" d={`M260 50 V ${88 + i * 54}`} />
+            <div className="diagram" aria-label="Four wallet prompts versus one">
+              <svg viewBox="0 0 520 296" role="img" style={{ minWidth: 430 }}>
+                <title>Permit2 asks for one signature per chain; CrossPermit asks once</title>
+
+                <text className="t sm" x="8" y="14">PERMIT2 — today</text>
+                {["ETHEREUM", "BASE", "OPTIMISM", "ARBITRUM"].map((n, i) => (
+                  <g key={n} transform={`translate(${i * 10}, ${i * 60})`}>
+                    <rect className="bx" x="8" y="26" width="212" height="52" rx="5" />
+                    <rect className="bx dk" x="8" y="26" width="212" height="17" rx="5" />
+                    <text className="t sm on-dk" x="18" y="38">Signature request · {i + 1} of 4</text>
+                    <text className="t" x="18" y="58">{n}</text>
+                    <text className="t sm" x="18" y="72">domain = f(chainId) · own digest</text>
+                    <rect className="bx" x="164" y="55" width="48" height="16" rx="3" />
+                    <text className="t sm" x="172" y="67">Sign</text>
                   </g>
                 ))}
-                <text className="t sm" x="24" y="240">
-                  one signature per row. four chains, four signatures, four revocations.
-                </text>
+                <text className="t sm" x="8" y="292">4 prompts · 4 audit lines · 4 revocations</text>
+
+                <path className="wire dash" d="M262 20 V 276" />
+
+                <text className="t sm" x="292" y="14">CROSSPERMIT</text>
+                <rect className="bx sig" x="292" y="26" width="220" height="92" rx="5" />
+                <rect className="bx dk" x="292" y="26" width="220" height="17" rx="5" />
+                <text className="t sm on-dk" x="302" y="38">Signature request</text>
+                <text className="t" x="302" y="60">ETHEREUM · BASE · OPTIMISM</text>
+                <text className="t sm" x="302" y="76">one root, one digest, 65 bytes</text>
+                <text className="t sm" x="302" y="90">cap, expiry and spender per chain</text>
+                <rect className="bx" x="440" y="94" width="60" height="18" rx="3" />
+                <text className="t sm" x="450" y="107">Sign once</text>
+
+                <text className="t sm" x="292" y="146">1 prompt · 1 audit record</text>
+                <text className="t sm" x="292" y="162">1 signature retracts it everywhere</text>
               </svg>
             </div>
           </div>
@@ -380,8 +384,8 @@ export default function Pitch() {
           </div>
 
           <div className="diagram" aria-label="CrossPermit system architecture">
-            <svg viewBox="0 0 980 260" role="img">
-              <title>One signature fans out to three chains through a relayer</title>
+            <svg viewBox="0 0 980 340" role="img">
+              <title>One signature over a merkle root fans out to three chains through a relayer</title>
               <rect className="bx sig" x="8" y="96" width="132" height="66" rx="5" />
               <text className="t" x="24" y="122">
                 CLIENT WALLET
@@ -428,7 +432,7 @@ export default function Pitch() {
                     CrossPermit, same address
                   </text>
                   <text className="t sm" x="576" y={72 + i * 82}>
-                    verify proof → apply bundle
+                    leaf {i} + proof → root → signer
                   </text>
                 </g>
               ))}
@@ -461,6 +465,37 @@ export default function Pitch() {
               </text>
               <text className="t sm" x="816" y="222">
                 Aave v4 · tokenized equity
+              </text>
+
+              {/* the merkle tree: what the one signature is actually over */}
+              <text className="t sm" x="180" y="206">
+                what is signed
+              </text>
+              {CHAINS.map((c, i) => (
+                <g key={`leaf-${c.id}`}>
+                  <rect className="bx" x="180" y={220 + i * 34} width="118" height="26" rx="4" />
+                  <text className="t sm" x="190" y={237 + i * 34}>
+                    leaf {i} · {c.name.split(" ")[0]}
+                  </text>
+                  <path className="wire" d={`M298 ${233 + i * 34} H 330`} />
+                </g>
+              ))}
+              <path className="wire" d="M330 233 V 301" />
+              <rect className="bx sig" x="330" y="240" width="110" height="26" rx="4" />
+              <text className="t sm" x="340" y="257">
+                H(pair) folded
+              </text>
+              <rect className="bx sig" x="452" y="240" width="96" height="26" rx="4" />
+              <text className="t sm" x="462" y="257">
+                merkle root
+              </text>
+              <path className="wire sig" d="M440 253 H452" />
+              <path className="wire sig" d="M500 240 V 162" />
+              <text className="t sm" x="560" y="246">
+                the root is the signed object · chainId lives inside each leaf, never in the signature
+              </text>
+              <text className="t sm" x="560" y="262">
+                leaves computed in the browser · a leaf from an RPC would choose what the user signs
               </text>
 
               <path className="wire sig" d="M140 128 H180" />

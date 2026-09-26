@@ -8,6 +8,7 @@ import {
   poolId,
   poolStateSlot,
   poolsForToken,
+  priceOf,
   rangeAt,
 } from "./pools";
 
@@ -33,6 +34,17 @@ test("slot0 unpacks the word Base Sepolia actually returned", () => {
   expect(s.sqrtPriceX96).toBeGreaterThan(2n ** 96n);
   expect(s.price).toBeGreaterThan(0.999);
   expect(s.price).toBeLessThan(1.001);
+});
+
+// The seeded pools are 6dp both sides, so the correction is a no-op there and always was. The
+// Uniswap pools are 6dp/18dp, where the raw ratio is a twelve-order-of-magnitude lie.
+test("price is corrected for each side's decimals", () => {
+  const seeded = POOLS.find((p) => p.chainId === 84532 && p.source === "seeded")!;
+  expect(priceOf(seeded, 1.0002)).toBeCloseTo(1.0002, 6);
+
+  const uniswap = POOLS.find((p) => p.chainId === 84532 && p.source === "uniswap")!;
+  // ~2.5e8 raw is what the card was printing; as a price it is 0.00025 WETH per USDC.
+  expect(priceOf(uniswap, 2.5e8)).toBeCloseTo(0.00025, 8);
 });
 
 test("a negative tick sign-extends instead of reading as 16 million", () => {

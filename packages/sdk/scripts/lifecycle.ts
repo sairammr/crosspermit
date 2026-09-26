@@ -6,8 +6,8 @@
 //   setup      chain ids, code, test token, mint, one-time ERC20 approval, a real Uniswap v4 pool
 //   authorize  one signature -> allowances on 3 chains, plus an immediate signed transfer on one
 //   spend      the router pulls (PERMIT2_TRANSFER_FROM) and swaps (V4_SWAP) out of that allowance
-//   decrease   one signature -> DECREASE the remainder to zero on all 3 chains
-//   lock       one signature -> LOCK the router on all 3 chains; prove it can no longer spend
+//   decrease   one signature -> DECREASE every spender's remainder to zero on all 3 chains
+//   lock       one signature -> LOCK every spender on all 3 chains; prove the router cannot spend
 //   unlock     one signature -> UNLOCK and re-grant; prove it can spend again
 //   cancel     sign a permit, then retract its salt on all 3 chains before submitting it, and
 //              prove the retracted permit can never be redeemed
@@ -189,13 +189,27 @@ async function openChain(c: (typeof CHAINS)[number], owner: Address) {
   const client = createPublicClient({ transport });
   const wallet = createWalletClient({ transport });
   const router = readJson(`deployments/router-${c.key}.json`).universalRouter as Address;
+  // The LiquidityDesk is the other spender a real mandate names, so every stage that retracts
+  // authority has to name it too. Optional because `deploy-liquidity.ts` may not have run yet;
+  // absent, this script simply has one spender to revoke instead of two.
+  const deskFile = `deployments/liquidity-${c.key}.json`;
+  const desk = existsSync(here(deskFile)) ? (readJson(deskFile).address as Address) : null;
   // sepolia.unichain.org answers `pending` with 0 while `latest` is correct, so take the max.
   const [latest, pending] = await Promise.all([
     client.getTransactionCount({ address: owner, blockTag: "latest" }),
     client.getTransactionCount({ address: owner, blockTag: "pending" }),
   ]);
-  return { ...c, client, wallet, router, nextNonce: Math.max(latest, pending) };
+  return { ...c, client, wallet, router, desk, nextNonce: Math.max(latest, pending) };
 }
+
+/**
+ * Every spender a revocation has to cover on this chain.
+ *
+ * A LOCK is per (owner, token, SPENDER), so retracting "the mandate" means one entry per spender the
+ * mandate ever named. Locking the router alone leaves the desk holding a live allowance that the
+ * report below would not mention — the exact shape of a revocation that looks complete and is not.
+ */
+const spendersOf = (c: Chain): Address[] => (c.desk ? [c.router, c.desk] : [c.router]);
 
 const ctxOf = (c: Chain): ChainCtx => ({
   chainId: c.chainId,
@@ -566,33 +580,46 @@ async function main() {
   // ---- decrease: one signature retires the remainder on every chain ----
   if (wanted("decrease")) {
     console.log("\n--- decrease: ONE signature retires the leftover allowance everywhere ---");
-    const remaining = await Promise.all(chains.map((c, i) => allowanceOf(c, tokens[i]!, c.router).then((a) => a.amount)));
+    // Per spender, not just the router: a decrease that retires one spender's remainder and leaves
+    // another's is the same hole as a partial lock.
+    const remaining = await Promise.all(
+      chains.map((c, i) => Promise.all(spendersOf(c).map((s) => allowanceOf(c, tokens[i]!, s).then((a) => a.amount)))),
+    );
     for (let i = 0; i < chains.length; i++) {
-      check(remaining[i]! > 0n, `${chains[i]!.name}: ${remaining[i]} left to retire, so the decrease below is a real test`);
+      const left = remaining[i]![0]!;
+      check(left > 0n, `${chains[i]!.name}: ${left} left to retire, so the decrease below is a real test`);
     }
 
-    await oneSignature("decrease", chains, (c, i) => [
-      // Mode 1 is DECREASE, and amountDelta is the amount to subtract. Pass the exact remainder so
-      // the assertion below is "reached zero", not "went down a bit".
-      { modeOrExpiration: MODE.DECREASE, tokenKey: tokenKey(tokens[i]!), account: c.router, amountDelta: remaining[i]! },
-    ], { label: "decrease" });
+    await oneSignature("decrease", chains, (c, i) =>
+      // Mode 1 is DECREASE, and amountDelta is the amount to subtract. Pass each spender's exact
+      // remainder so the assertion below is "reached zero", not "went down a bit".
+      spendersOf(c).map((s, j) => ({
+        modeOrExpiration: MODE.DECREASE,
+        tokenKey: tokenKey(tokens[i]!),
+        account: s,
+        amountDelta: remaining[i]![j]!,
+      })), { label: "decrease" });
 
     for (let i = 0; i < chains.length; i++) {
       const c = chains[i]!;
-      const left = await settle(() => allowanceOf(c, tokens[i]!, c.router).then((a) => a.amount), (a) => a === 0n);
-      check(left === 0n, `${c.name}: leftover allowance decreased from ${remaining[i]} to ${left}`);
+      for (const [j, s] of spendersOf(c).entries()) {
+        const left = await settle(() => allowanceOf(c, tokens[i]!, s).then((a) => a.amount), (a) => a === 0n);
+        check(left === 0n, `${c.name}: ${s} allowance decreased from ${remaining[i]![j]} to ${left}`);
+      }
     }
   }
 
   // ---- lock: the cross-chain kill switch ----
   if (wanted("lock")) {
-    console.log("\n--- lock: ONE signature disables the router on every chain ---");
-    await oneSignature("lock", chains, (c, i) => [lockEntry(tokens[i]!, c.router)], { label: "lock" });
+    console.log("\n--- lock: ONE signature disables every spender on every chain ---");
+    await oneSignature("lock", chains, (c, i) => spendersOf(c).map((s) => lockEntry(tokens[i]!, s)), { label: "lock" });
 
     for (let i = 0; i < chains.length; i++) {
       const c = chains[i]!;
-      const a = await settle(() => allowanceOf(c, tokens[i]!, c.router), (x) => x.expiration === 2);
-      check(a.expiration === 2, `${c.name}: allowance is LOCKED (expiration sentinel ${a.expiration}, amount ${a.amount})`);
+      for (const s of spendersOf(c)) {
+        const x = await settle(() => allowanceOf(c, tokens[i]!, s), (v) => v.expiration === 2);
+        check(x.expiration === 2, `${c.name}: ${s} is LOCKED (expiration sentinel ${x.expiration}, amount ${x.amount})`);
+      }
 
       // A lock that does not actually stop a spend is decoration, so prove the spend fails. Simulate
       // rather than broadcast: the revert is the assertion, and there is no reason to pay for it.
@@ -613,21 +640,28 @@ async function main() {
 
   // ---- unlock: and prove spending resumes ----
   if (wanted("unlock")) {
-    console.log("\n--- unlock: ONE signature restores the router on every chain ---");
+    console.log("\n--- unlock: ONE signature restores every spender on every chain ---");
     const expiry = Math.floor(Date.now() / 1000) + 86_400;
 
     // Order matters inside a bundle: entries are processed in sequence against live storage, so the
     // UNLOCK clears the lock sentinel and the increase in the same bundle then passes lock
     // validation. An increase alone would revert with AllowanceLocked.
     await oneSignature("unlock", chains, (c, i) => [
-      { modeOrExpiration: MODE.UNLOCK, tokenKey: tokenKey(tokens[i]!), account: c.router, amountDelta: 0n },
+      // Every spender the lock stage covered, or the desk stays locked for good once this script
+      // has run against a deployment.
+      ...spendersOf(c).map((s) => ({ modeOrExpiration: MODE.UNLOCK, tokenKey: tokenKey(tokens[i]!), account: s, amountDelta: 0n })),
+      // Only the router is re-granted: the pull below is the proof that spending resumes, and
+      // handing the desk an allowance nothing in this script spends would assert nothing.
       approveEntry(tokens[i]!, c.router, RELOCK_PULL, expiry),
     ], { label: "unlock + re-grant" });
 
     for (let i = 0; i < chains.length; i++) {
       const c = chains[i]!;
+      for (const s of spendersOf(c)) {
+        const x = await settle(() => allowanceOf(c, tokens[i]!, s), (v) => v.expiration !== 2);
+        check(x.expiration !== 2, `${c.name}: ${s} lock cleared (expiration ${x.expiration})`);
+      }
       const a = await settle(() => allowanceOf(c, tokens[i]!, c.router), (x) => x.expiration !== 2 && x.amount >= RELOCK_PULL);
-      check(a.expiration !== 2, `${c.name}: lock cleared (expiration ${a.expiration})`);
       check(a.amount >= RELOCK_PULL, `${c.name}: re-granted ${a.amount} in the same signature`);
 
       const recipientBefore = await balanceOf(c, tokens[i]!, RECIPIENT);

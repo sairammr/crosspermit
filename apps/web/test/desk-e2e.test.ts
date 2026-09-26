@@ -100,7 +100,9 @@ const as = (cookie: string, path: string, init: RequestInit = {}) =>
   fetch(`${base}${path}`, { ...init, headers: { "content-type": "application/json", cookie, ...(init.headers ?? {}) } });
 
 test("no session reads nothing", async () => {
-  for (const path of ["/v1/auth/me", "/v1/clients", `/v1/treasury/${CLIENT}`, `/v1/activity/${CLIENT}`]) {
+  // `/v1/intents` is the collection — every manager's fan-out. A prefix match once proxied it to
+  // anyone; only the single-intent paths below it are open.
+  for (const path of ["/v1/auth/me", "/v1/clients", "/v1/intents", `/v1/treasury/${CLIENT}`, `/v1/activity/${CLIENT}`]) {
     const res = await fetch(`${base}${path}`);
     expect(res.status).toBe(401);
   }
@@ -203,7 +205,43 @@ test("a desk deployment cannot be shared, and a foreign spender is flagged", asy
 });
 
 test("the upstream key never leaves the layer", async () => {
-  const page = await (await fetch(`${base}/`)).text();
-  expect(page).not.toInclude("upstream-secret");
-  expect(page).not.toInclude("NEXT_PUBLIC_RELAYER_API_KEY");
+  // Against the answers that actually travel upstream with the key attached, not against a 404.
+  // A 404 body cannot contain the secret whatever the layer does, so asserting on one is an
+  // assertion that passes for any implementation — which is the same as no assertion at all.
+  const a = await signIn(A);
+  const made = (await (await as(a, "/v1/clients", { method: "POST", body: JSON.stringify({ name: "Keyless" }) })).json()) as {
+    client: { token: string };
+  };
+  mandates.set(made.client.token, { ...mandates.get(made.client.token)!, owner: CLIENT, status: "active" });
+
+  const seen = async (res: Response) =>
+    `${[...res.headers].map(([k, v]) => `${k}: ${v}`).join("\n")}\n${await res.text()}`;
+
+  // The book, with the mandate the stub really returned in it.
+  const book = await as(a, "/v1/clients");
+  expect(book.status).toBe(200);
+  const bookText = await seen(book);
+  expect(bookText).toInclude("Keyless");
+
+  // The two gated reads the layer fetches upstream with `authorization: Bearer upstream-secret`.
+  const treasury = await as(a, `/v1/treasury/${CLIENT}`);
+  expect(treasury.status).toBe(200);
+  const treasuryText = await seen(treasury);
+  expect(treasuryText).toInclude(ROUTER);
+
+  const activity = await as(a, `/v1/activity/${CLIENT}`);
+  expect(activity.status).toBe(200);
+
+  // And the venues, read off chain by this layer itself. Offline it answers with a per-pool
+  // `error`, which is still a body this layer composed and so is still worth scanning.
+  const pools = await as(a, "/v1/pools");
+  const poolsText = await seen(pools);
+  expect(poolsText).toInclude("poolManager");
+
+  // Headers as well as bodies: a proxy that echoed the request's `authorization` back would leak
+  // it somewhere no body assertion looks.
+  for (const text of [bookText, treasuryText, await seen(activity), poolsText]) {
+    expect(text).not.toInclude("upstream-secret");
+    expect(text).not.toInclude("NEXT_PUBLIC_RELAYER_API_KEY");
+  }
 });

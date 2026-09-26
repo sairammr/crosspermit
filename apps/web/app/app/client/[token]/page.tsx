@@ -27,14 +27,14 @@ import { type Address, formatUnits, parseAbi } from "viem";
 import { useReadContracts } from "wagmi";
 
 import { crossPermitAbi } from "@crosspermit/sdk";
-import { type ClientMandate, useClients, useMandate } from "../../../../src/clients";
+import { type ClientMandate, useMandate } from "../../../../src/clients";
 import { CHAINS, CROSS_PERMIT, chainById } from "../../../../src/config";
-import { DitherArea, DitherBars } from "../../../../src/dithergraph";
-import { Shell } from "../../shell";
+import { DitherArea, DitherBars, HorseMatrix } from "../../../../src/dithergraph";
+import { Rail } from "../../../rail";
 import { SIGNAL } from "../../../../src/dither";
 import { POOLS } from "../../../../src/pools";
 import { type ActivityRow, useActivity, useRelayerChains, useTreasury } from "../../../../src/relayer";
-import { type Recommendation, recommend } from "../../../../src/strategies";
+import { recommend } from "../../../../src/strategies";
 import { authorityOverTime, perChain, resample } from "../../../../src/series";
 import { type PoolRow, PoolsPanel } from "./pools";
 import "../../desk.css";
@@ -56,6 +56,37 @@ const STATUS_LABEL: Record<ClientMandate["status"], string> = {
   revoked: "withdrawn",
 };
 
+/** The chain's own mark, served from this app. A badge reads faster than a chain name in a cell. */
+const CHAIN_LOGO: Record<number, string> = {
+  84532: "/logos/base.png",
+  11155111: "/logos/ethereum.png",
+  11155420: "/logos/optimism.png",
+};
+
+/** A chain, as a badge: mark plus short name. Used wherever a table used to carry a "Chain" column. */
+function ChainTag({ chainId }: { chainId: number }) {
+  const c = chainById(chainId);
+  return (
+    <span className="chain-tag">
+      {CHAIN_LOGO[chainId] && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={CHAIN_LOGO[chainId]!} alt="" width={14} height={14} />
+      )}
+      {c?.short ?? chainId}
+    </span>
+  );
+}
+
+/** One proportion, drawn. `of` is the whole; a zero whole means there is nothing to draw. */
+function Meter({ value, of, tone }: { value: number; of: number; tone?: "ok" | "warn" | "bad" }) {
+  const pctFull = of > 0 ? Math.max(0, Math.min(100, (value / of) * 100)) : 0;
+  return (
+    <span className={`meter${tone ? ` m-${tone}` : ""}`} role="img" aria-label={`${pctFull.toFixed(0)}%`}>
+      <i style={{ width: `${pctFull}%` }} />
+    </span>
+  );
+}
+
 /** `LOCKED_ALLOWANCE` — the expiration CrossPermit writes to mean "locked", not "expired in 1970". */
 const LOCKED = 2;
 
@@ -76,29 +107,33 @@ export default function ClientPage() {
   const { state, reload } = useMandate(token);
   const [refreshKey, setRefreshKey] = useState(0);
 
-  const clients = useClients(refreshKey);
-  const client = state.kind === "ok" ? state.client : null;
-
   return (
-    <Shell
-      clients={clients}
-      current={token ?? ""}
-      title={client?.name ?? "Client"}
-      meta={client ? (client.mandate || "portfolio, as the control plane and each chain report it") : undefined}
-      actions={
-        <button
-          className="btn btn-sm"
-          type="button"
-          onClick={() => {
-            reload();
-            setRefreshKey((k) => k + 1);
-          }}
-        >
-          <span className="cap">Refresh</span>
-        </button>
-      }
-      onSession={() => setRefreshKey((k) => k + 1)}
-    >
+    <div className="wrap">
+      {/* One key, because there is one way out of a client record: back to the book it came from. */}
+      <Rail
+        variant="inline"
+        go={null}
+        items={[{ key: "desk", label: "← The desk", href: "/app" }]}
+        brand={
+          <Link href="/app">
+            <HorseMatrix cols={20} size={24} tone="light" />
+            CrossPermit
+          </Link>
+        }
+        aside={
+          <button
+            className="btn btn-sm"
+            type="button"
+            onClick={() => {
+              reload();
+              setRefreshKey((k) => k + 1);
+            }}
+          >
+            <span className="cap">Refresh</span>
+          </button>
+        }
+      />
+
       {state.kind === "loading" && <p className="note">Reading the mandate…</p>}
       {state.kind === "missing" && (
         <div className="panel">
@@ -116,7 +151,116 @@ export default function ClientPage() {
         </div>
       )}
       {state.kind === "ok" && <Dashboard client={state.client} refreshKey={refreshKey} />}
-    </Shell>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- views
+
+type TabKey = "overview" | "positions" | "history";
+
+const TABS: { key: TabKey; label: string }[] = [
+  { key: "overview", label: "Overview" },
+  { key: "positions", label: "Positions" },
+  { key: "history", label: "History" },
+];
+
+/** Three readings of the same mandate. Console keys, because the rail above is console keys. */
+function Tabs({
+  tab,
+  onTab,
+  counts,
+}: {
+  tab: TabKey;
+  onTab: (t: TabKey) => void;
+  counts: { positions: number; history: number };
+}) {
+  return (
+    <nav className="subtabs" aria-label="Client views">
+      {TABS.map((t) => {
+        const n = t.key === "positions" ? counts.positions : t.key === "history" ? counts.history : 0;
+        return (
+          <button
+            key={t.key}
+            type="button"
+            className={`btn btn-sm${tab === t.key ? " on" : ""}`}
+            aria-current={tab === t.key ? "page" : undefined}
+            onClick={() => onTab(t.key)}
+          >
+            <span className="cap">
+              {t.label}
+              {n > 0 && <b className="count">{n}</b>}
+            </span>
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
+/**
+ * The book in five figures, the way a portfolio screen opens: what is held, what of it is dry
+ * powder, how much of the holding the desk can actually reach, how wide the book is spread, and the
+ * best rate anything measurable would pay on it. A ledger that refused reads "could not" — never 0.
+ */
+function Book({
+  held,
+  deployable,
+  positions,
+  assets,
+  chains,
+  yieldNow,
+  unread,
+}: {
+  held: bigint;
+  deployable: bigint;
+  positions: number;
+  assets: number;
+  chains: number;
+  yieldNow: ReturnType<typeof recommend>[number] | null;
+  unread: boolean;
+}) {
+  const reach = held > 0n ? Number(deployable) / Number(held) : 0;
+  return (
+    <div className="grid g3 book">
+      <div className="stat">
+        <div className="k">Held across chains</div>
+        <div className="v">{unread ? "could not read" : num(Number(held) / 1e6, 4)}</div>
+        <p className="n">The client&rsquo;s own balance, summed over every approved chain.</p>
+      </div>
+      <div className="stat">
+        <div className="k">Deployable now</div>
+        <div className="v">{unread ? "could not read" : num(Number(deployable) / 1e6, 4)}</div>
+        <p className="n">Dry powder: what the desk&rsquo;s counterparties may draw today.</p>
+      </div>
+      <div className={`stat${!unread && held > 0n && reach < 0.2 ? " stat-warn" : ""}`}>
+        <div className="k">Reach of the holding</div>
+        <div className="v">{unread || held === 0n ? "—" : pct(reach)}</div>
+        <p className="n">Share of the balance that standing authority actually covers.</p>
+      </div>
+      <div className="stat">
+        <div className="k">Book width</div>
+        <div className="v">
+          {positions || "—"} · {assets}
+        </div>
+        <p className="n">
+          Positions and assets, over {chains || 0} chain{chains === 1 ? "" : "s"}.
+        </p>
+      </div>
+      <div className="stat">
+        <div className="k">Best measured rate</div>
+        <div className="v">{yieldNow?.strategy.apy ? pct(yieldNow.strategy.apy) : "none quotable"}</div>
+        <p className="n">
+          {yieldNow?.projectedUnits ? `+${formatUnits(yieldNow.projectedUnits, 6)} over the mandate` : "Nothing on these terms carries a measured rate."}
+          {yieldNow && !yieldNow.routable ? " — and it is not reachable from here." : ""}
+        </p>
+      </div>
+      <div className="stat">
+        <div className="k">Venue</div>
+        <div className="v">Uniswap v4</div>
+        <p className="n">The one thing this mandate can be put to work in is in the panel to the right.</p>
+      </div>
+    </div>
   );
 }
 
@@ -144,15 +288,18 @@ function Dashboard({ client, refreshKey }: { client: ClientMandate; refreshKey: 
 
   // Live v4 figures, lifted out of the pools panel so the depth chart and the panel cannot
   // disagree about what the pool holds.
-  const [poolRows, setPoolRows] = useState<Record<number, PoolRow>>({});
+  // Keyed by pool id, not by chain: Base Sepolia and Ethereum Sepolia each carry two pools, and
+  // keying by chain had them overwrite each other on every lift — a state change every render.
+  const [tab, setTab] = useState<TabKey>("overview");
+  const [poolRows, setPoolRows] = useState<Record<string, PoolRow>>({});
   const onPoolRows = useCallback((rows: PoolRow[]) => {
     setPoolRows((prev) => {
       let changed = false;
       const next = { ...prev };
       for (const r of rows) {
-        const old = prev[r.chainId];
+        const old = prev[r.id];
         if (!old || old.liquidity !== r.liquidity || old.tick !== r.tick) {
-          next[r.chainId] = r;
+          next[r.id] = r;
           changed = true;
         }
       }
@@ -235,7 +382,9 @@ function Dashboard({ client, refreshKey }: { client: ClientMandate; refreshKey: 
   const acts = activity ? activity.rows : [];
 
   // The yield line for the rail: the best measured rate among strategies that could run on the
-  // chains this client signed for, applied to what is actually deployable.
+  // chains this client signed for, applied to what is actually deployable. Every strategy that
+  // carries a measured rate is `liveOn: []` today, so the pick is routinely one this desk cannot
+  // reach — which the line says, in the same words the strategy rows use.
   const yieldNow = useMemo(() => {
     const chainIds = [...new Set(rows.map((r) => r.chainId))];
     const best = recommend({ capUnits: totalDeployable, ttlHours: client.ttlHours || 720, chainIds })
@@ -247,7 +396,43 @@ function Dashboard({ client, refreshKey }: { client: ClientMandate; refreshKey: 
   return (
     <div className="desk client-page">
       <div className="client-grid">
-        <aside className="rail">
+        {/* The dashboard proper: the figures, the charts, who can spend this, and what happened. */}
+        <main className="body">
+          <Tabs tab={tab} onTab={setTab} counts={{ positions: rows.length, history: acts.length }} />
+
+          {tab === "overview" && (
+            <>
+              <Book
+                held={totalHeld}
+                deployable={totalDeployable}
+                positions={rows.length}
+                assets={assets.length}
+                chains={new Set(rows.map((r) => r.chainId)).size}
+                yieldNow={yieldNow}
+                unread={ledger === false}
+              />
+              <Charts acts={acts} rows={rows} poolRows={poolRows} />
+              <Access rows={rows} platform={platform} covered={ledger ? ledger.covered : []} uncovered={uncovered} />
+            </>
+          )}
+
+          {tab === "positions" && (
+            <>
+              {ledger && approved.length === 0 && (
+                <div className="panel">
+                  <h2>No grants indexed</h2>
+                  <p className="note">Nothing for this account yet — indexing may be behind.</p>
+                </div>
+              )}
+              <Positions assets={assets} />
+            </>
+          )}
+
+          {tab === "history" && <Activity activity={activity} uncovered={uncovered} />}
+        </main>
+
+        {/* The narrow side: the mandate itself, and the venues it can be put to work in. */}
+        <aside className="side">
           <div className="panel">
             <div className="sec-head">
               <h2>{client.name}</h2>
@@ -260,13 +445,15 @@ function Dashboard({ client, refreshKey }: { client: ClientMandate; refreshKey: 
                 <dt className="micro">Signed by</dt>
                 <dd className="mono">{owner ? short(owner, 8) : "—"}</dd>
               </div>
+              {/* A ledger that refused is not a ledger of zero. Both figures are folded from its
+                  rows, so when it did not answer they are unknown, and they say so. */}
               <div className="kv">
                 <dt className="micro">Held across chains</dt>
-                <dd>{num(Number(totalHeld) / 1e6, 4)}</dd>
+                <dd>{ledger === false ? "could not read" : num(Number(totalHeld) / 1e6, 4)}</dd>
               </div>
               <div className="kv">
                 <dt className="micro">Deployable now</dt>
-                <dd>{num(Number(totalDeployable) / 1e6, 4)}</dd>
+                <dd>{ledger === false ? "could not read" : num(Number(totalDeployable) / 1e6, 4)}</dd>
               </div>
               <div className="kv">
                 <dt className="micro">Approved triples</dt>
@@ -290,53 +477,22 @@ function Dashboard({ client, refreshKey }: { client: ClientMandate; refreshKey: 
                 <dd>
                   {yieldNow?.strategy.apy ? pct(yieldNow.strategy.apy) : "none quotable"}
                   {yieldNow?.projectedUnits ? ` → +${formatUnits(yieldNow.projectedUnits, 6)}` : ""}
+                  {yieldNow && !yieldNow.routable ? " (if it were reachable)" : ""}
                 </dd>
               </div>
             </dl>
 
-            {anyUnreadable && (
-              <p className="note">Some allowance reads failed, so the deployable figure is a floor, not a total.</p>
-            )}
+            {anyUnreadable && <p className="note">Some reads failed — floor, not total.</p>}
             {uncovered.length > 0 && (
               <p className="note">
-                No MultiBaas deployment on {uncovered.map((id) => chainById(id)?.name ?? id).join(", ")}. Allowances
-                there are read from chain storage, but there is <strong>no control-plane audit trail</strong> — the
-                history is missing whatever happened on those chains, which is not the same as nothing having
-                happened.
+                Not indexed: {uncovered.map((id) => chainById(id)?.short ?? id).join(", ")} — grants there are invisible here.
               </p>
             )}
-            {ledger === false && (
-              <p className="note">
-                The control plane did not answer. Approved pairs are derived from its event ledger, so this page
-                cannot list them — it is not telling you there are none.
-              </p>
-            )}
+            {ledger === false && <p className="note">Control plane silent — unknown, not zero.</p>}
           </div>
 
-          <Charts acts={acts} rows={rows} poolRows={poolRows} />
-        </aside>
-
-        <main className="body">
-          <Access rows={rows} platform={platform} covered={ledger ? ledger.covered : []} uncovered={uncovered} />
-
           <PoolsPanel owner={owner} onRows={onPoolRows} />
-
-          {ledger && approved.length === 0 && (
-            <div className="panel">
-              <h2>No grants indexed</h2>
-              <p className="note">
-                The ledger has no grants for this account. If the client signed within the last few blocks, indexing
-                may not have caught up.
-              </p>
-            </div>
-          )}
-
-          {assets.map(([symbol, group]) => (
-            <Asset key={symbol} symbol={symbol} rows={group} ttlHours={client.ttlHours} />
-          ))}
-
-          <Activity activity={activity} uncovered={uncovered} />
-        </main>
+        </aside>
       </div>
     </div>
   );
@@ -356,12 +512,22 @@ function Chart({ title, note, children }: { title: string; note: string; childre
   );
 }
 
-function Charts({ acts, rows, poolRows }: { acts: ActivityRow[]; rows: Row[]; poolRows: Record<number, PoolRow> }) {
+function Charts({ acts, rows, poolRows }: { acts: ActivityRow[]; rows: Row[]; poolRows: Record<string, PoolRow> }) {
   const chainIds = CHAINS.map((c) => c.id);
   const series = useMemo(() => resample(authorityOverTime(acts), 72), [acts]);
   const byChain = useMemo(() => perChain(acts, chainIds), [acts]);
-  const depth = chainIds.map((id) => Number(poolRows[id]?.liquidity ?? 0n) / 1e6);
-  const drift = chainIds.map((id) => Math.abs((poolRows[id]?.price ?? 1) - 1) * 1e4);
+  const pools = Object.values(poolRows);
+  const depth = chainIds.map(
+    (id) => pools.filter((p) => p.chainId === id).reduce((sum, p) => sum + Number(p.liquidity), 0) / 1e6,
+  );
+  // What share of what the client holds on a chain the desk may actually draw. A balance with no
+  // allowance behind it is not capital this desk can work with, and that gap is the whole question.
+  const used = chainIds.map((id) => {
+    const on = rows.filter((r) => r.chainId === id);
+    const held = on.reduce((sum, r) => sum + Number(r.balance ?? 0n), 0);
+    const live = on.reduce((sum, r) => sum + Number(r.remaining ?? 0n), 0);
+    return held > 0 ? Math.min(100, (live / held) * 100) : 0;
+  });
   const consumed = rows.map((r) =>
     r.remaining === undefined || r.granted === 0n ? 0 : Number(r.granted - r.remaining) / 1e6,
   );
@@ -376,50 +542,38 @@ function Charts({ acts, rows, poolRows }: { acts: ActivityRow[]; rows: Row[]; po
         <h2>How it grew</h2>
         <span className="label">02 / Real reads</span>
       </div>
-      <p className="sub">
-        Every series is folded from records that exist: MultiBaas-indexed <span className="mono">Permit</span> events
-        for authority, PoolManager storage for depth. No projections, no interpolation between invented points.
-      </p>
 
       <Chart
         title="Authority outstanding, over time"
-        note={
-          series.length
-            ? `Step series over ${acts.length} indexed event(s) spanning ${span} minute(s), summed across every (chain, token) pair. A permit sets a pair's allowance; a LOCK takes it to zero.`
-            : "Nothing indexed yet, so there is no series to draw. An empty chart here means no events, not no authority."
-        }
+        note={series.length ? `${acts.length} events · ${span}m span` : "no events indexed"}
       >
         {series.length > 1 ? <DitherArea values={series} variant="gradient" bloom="low" baseline={0.08} /> : null}
       </Chart>
 
       <Chart
         title="Authority standing, per chain"
-        note={`${CHAINS.map((c, i) => `${c.short} ${num(byChain[i] ?? 0)}`).join(" · ")}. Last state of every pair on that chain, from the same events.`}
+        note={CHAINS.map((c, i) => `${c.short} ${num(byChain[i] ?? 0)}`).join(" · ")}
       >
         {byChain.some((v) => v > 0) ? <DitherBars values={byChain} hotIndex={byChain.indexOf(Math.max(...byChain))} /> : null}
       </Chart>
 
       <Chart
         title="v4 pool depth, per chain"
-        note={`${CHAINS.map((c, i) => `${c.short} ${num(depth[i] ?? 0)}`).join(" · ")}. In-range liquidity L/1e6, read live from each PoolManager's storage.`}
+        note={`L/1e6 · ${CHAINS.map((c, i) => `${c.short} ${num(depth[i] ?? 0)}`).join(" · ")}`}
       >
         {depth.some((v) => v > 0) ? <DitherBars values={depth} color={SIGNAL} /> : null}
       </Chart>
 
       <Chart
-        title="Pool price drift from 1:1, bps"
-        note={`${CHAINS.map((c, i) => `${c.short} ${num(drift[i] ?? 0, 1)}`).join(" · ")}. Every pool was seeded at 1:1, so this is what trading has moved it by — the fee income side of an LP position, and the divergence side too.`}
+        title="Mandated share of the holding, %"
+        note={CHAINS.map((c, i) => `${c.short} ${num(used[i] ?? 0, 1)}%`).join(" · ")}
       >
-        {drift.some((v) => v > 0) ? <DitherBars values={drift} variant="dotted" /> : null}
+        {used.some((v) => v > 0) ? <DitherBars values={used} variant="dotted" /> : null}
       </Chart>
 
       <Chart
         title="Consumed per approved grant"
-        note={
-          consumed.some((v) => v > 0)
-            ? "Granted minus what still stands, per (chain, token, spender). A bar here is capital the desk has already put to work."
-            : "Nothing consumed yet: every grant still stands at the amount it was signed for."
-        }
+        note={consumed.some((v) => v > 0) ? "granted − standing, per grant" : "nothing drawn yet"}
       >
         {consumed.some((v) => v > 0) ? <DitherBars values={consumed} /> : null}
       </Chart>
@@ -456,96 +610,66 @@ function Access({
   return (
     <div className="panel">
       <div className="sec-head">
-        <h2>Who can spend this, and what is watching</h2>
+        <h2>Who can spend this</h2>
         <span className="label">03 / Access</span>
       </div>
-      <p className="sub">
-        A treasury&rsquo;s real exposure is not its balance. It is every allowance it has signed and not yet retracted
-        — one row each, with the spender named rather than left as a hex string.
-      </p>
 
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Spender</th>
-              <th>Address</th>
-              <th>Chain</th>
-              <th>Asset</th>
-              <th className="num">Granted</th>
-              <th className="num">Still spendable</th>
-              <th>Expiry</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => {
-              const name = label(r.chainId, r.spender);
-              const chain = chainById(r.chainId);
-              return (
-                <tr key={`${r.chainId}:${r.token}:${r.spender}`}>
-                  <td>
-                    {name}
-                    {name === "unrecognised spender" && (
-                      <span className="sub-line">not the router and not the liquidity desk — worth asking about</span>
-                    )}
-                  </td>
-                  <td>
-                    <a href={`${chain?.explorer ?? ""}/address/${r.spender}`} target="_blank" rel="noreferrer">
-                      {short(r.spender)}
-                    </a>
-                  </td>
-                  <td>{chain?.name ?? r.chainId}</td>
-                  <td>{r.symbol}</td>
-                  <td className="num">{formatUnits(r.granted, r.decimals)}</td>
-                  <td className="num">
-                    {r.remaining === undefined ? <span title="the read failed">unknown</span> : formatUnits(r.remaining, r.decimals)}
-                  </td>
-                  <td>{r.expiration === undefined ? "—" : when(r.expiration)}</td>
-                </tr>
-              );
-            })}
-            {rows.length === 0 && (
-              <tr>
-                <td colSpan={7}>No standing authority indexed for this client.</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+      <div className="grant-list">
+        {rows.map((r) => {
+          const name = label(r.chainId, r.spender);
+          const chain = chainById(r.chainId);
+          const standing = r.remaining ?? 0n;
+          const odd = name === "unrecognised spender";
+          return (
+            <article className={`grant${odd ? " odd" : ""}`} key={`${r.chainId}:${r.token}:${r.spender}`}>
+              <header>
+                <strong>{name}</strong>
+                <ChainTag chainId={r.chainId} />
+                <span className="tag">{r.symbol}</span>
+                <a className="micro" href={`${chain?.explorer ?? ""}/address/${r.spender}`} target="_blank" rel="noreferrer">
+                  {short(r.spender)}
+                </a>
+                <span className={`tag ${standing > 0n ? "ok" : "warn"}`}>
+                  {r.remaining === undefined ? "unknown" : standing > 0n ? when(r.expiration ?? 0) : "spent or expired"}
+                </span>
+              </header>
+              <Meter
+                value={Number(standing)}
+                of={Number(r.granted)}
+                tone={odd ? "bad" : standing > 0n ? "ok" : "warn"}
+              />
+              <span className="micro">
+                {formatUnits(standing, r.decimals)} standing of {formatUnits(r.granted, r.decimals)} granted
+              </span>
+            </article>
+          );
+        })}
+        {rows.length === 0 && <p className="note">No standing authority indexed.</p>}
       </div>
-      <p className="note">
-        {live.length} of {rows.length} grant(s) can still be drawn on right now. Withdrawing the client&rsquo;s link on
-        the desk does not touch any of these: an allowance is retired by a cross-chain{" "}
-        <span className="mono">LOCK</span>, not by an invitation being cancelled.
-      </p>
-
       <h3 className="grp">Platform</h3>
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Chain</th>
-              <th>Relayer signer</th>
-              <th>Custody</th>
-              <th>Audit trail</th>
-              <th>v4 pool</th>
-              <th>Liquidity desk</th>
-            </tr>
-          </thead>
-          <tbody>
-            {CHAINS.map((c) => {
-              const p = platform ? platform.chains.find((x) => x.chainId === c.id) : undefined;
-              const pool = POOLS.find((x) => x.chainId === c.id);
-              return (
-                <tr key={c.id}>
-                  <td>{c.name}</td>
-                  <td>{p ? short(p.signer) : "—"}</td>
-                  <td>{p?.custody ?? "—"}</td>
-                  <td>
-                    <span className={`tag ${covered.includes(c.id) ? "ok" : "warn"}`}>
-                      {covered.includes(c.id) ? "MultiBaas" : "none"}
-                    </span>
-                  </td>
-                  <td>
+      <div className="chain-grid">
+        {CHAINS.map((c) => {
+          const p = platform ? platform.chains.find((x) => x.chainId === c.id) : undefined;
+          const pool = POOLS.find((x) => x.chainId === c.id);
+          const indexed = covered.includes(c.id);
+          return (
+            <article className="chain-tile" key={c.id}>
+              <header>
+                <ChainTag chainId={c.id} />
+                <span className={`tag ${indexed ? "ok" : "warn"}`}>{indexed ? "indexed" : "blind"}</span>
+              </header>
+              <dl className="kv-list">
+                <div className="kv">
+                  <dt className="micro">Signer</dt>
+                  <dd className="mono">{p ? short(p.signer) : "—"}</dd>
+                </div>
+                <div className="kv">
+                  <dt className="micro">Custody</dt>
+                  <dd>{p?.custody ?? "—"}</dd>
+                </div>
+                <div className="kv">
+                  <dt className="micro">Venue</dt>
+                  <dd>
                     {pool ? (
                       <a href={`${c.explorer}/address/${pool.poolManager}`} target="_blank" rel="noreferrer">
                         {short(pool.poolManager, 5)}
@@ -553,8 +677,11 @@ function Access({
                     ) : (
                       "—"
                     )}
-                  </td>
-                  <td>
+                  </dd>
+                </div>
+                <div className="kv">
+                  <dt className="micro">Desk</dt>
+                  <dd>
                     {pool ? (
                       <a href={`${c.explorer}/address/${pool.liquidityDesk}`} target="_blank" rel="noreferrer">
                         {short(pool.liquidityDesk, 5)}
@@ -562,182 +689,134 @@ function Access({
                     ) : (
                       "—"
                     )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                  </dd>
+                </div>
+              </dl>
+            </article>
+          );
+        })}
       </div>
       <p className="note">
         {platform === false
-          ? "The relayer did not answer, so its signer and custody per chain are unknown."
-          : `Control plane covers ${covered.length} of ${CHAINS.length} chains${
-              uncovered.length ? `; ${uncovered.map((id) => chainById(id)?.short ?? id).join(", ")} runs on the local signer with no indexed history` : ""
-            }.`}
+          ? "Relayer silent — signer and custody unknown."
+          : `Indexed on ${covered.length}/${CHAINS.length} chains${
+              uncovered.length ? ` · blind: ${uncovered.map((id) => chainById(id)?.short ?? id).join(", ")}` : ""
+            }`}
       </p>
     </div>
   );
 }
 
-// ---------------------------------------------------------------- one approved asset
+// ---------------------------------------------------------------- positions
 
-function Asset({ symbol, rows, ttlHours }: { symbol: string; rows: Row[]; ttlHours: number }) {
-  const decimals = rows[0]?.decimals ?? 6;
-  const chainIds = [...new Set(rows.map((r) => r.chainId))];
-  // The recommender is given what actually stands, not what the desk asked for: the smallest live
-  // per-chain allowance, because a strategy has to fit the weakest chain it will run on.
-  const capUnits = rows.reduce((m, r) => (r.remaining !== undefined && r.remaining < m ? r.remaining : m), 2n ** 255n);
-  const cap = capUnits === 2n ** 255n ? 0n : capUnits;
-  // Hours left on the shortest-lived grant. That, not the desk's requested TTL, is how long a
-  // position actually has.
-  const hoursLeft = rows.reduce((m, r) => {
-    const h = r.expiration ? Math.max(0, Math.floor((r.expiration * 1000 - Date.now()) / 3_600_000)) : 0;
-    return Math.min(m, h);
-  }, Number.POSITIVE_INFINITY);
-  const ttl = Number.isFinite(hoursLeft) && hoursLeft > 0 ? hoursLeft : ttlHours;
-
-  const recs = useMemo(() => recommend({ capUnits: cap, ttlHours: ttl, chainIds }), [cap.toString(), ttl, chainIds.join()]);
-  const routable = recs.filter((r) => r.routable);
-  const hedges = recs.filter((r) => r.strategy.kind === "hedge");
-  const designed = recs.filter((r) => !r.routable && r.strategy.kind !== "hedge");
-
+/**
+ * The blotter. One row per (asset, chain, counterparty) the client actually approved, which is the
+ * shape a portfolio manager reads a book in: what is held, what of it is reachable, how much of the
+ * grant has been drawn, and how long the position has left to live. Grouped by asset, because an
+ * asset approved on three chains is one exposure with three settlement venues, not three exposures.
+ *
+ * No strategy rows here. What the desk *could* do is a different question from what it holds, and
+ * mixing the two put speculative lines in the same list as measured ones.
+ */
+function Positions({ assets }: { assets: [string, Row[]][] }) {
   return (
     <div className="panel">
       <div className="sec-head">
-        <h2>{symbol}</h2>
-        <span className="label">05 / Approved asset</span>
-        <span className={`tag ${cap > 0n ? "active" : "awaiting"}`}>
-          {cap > 0n ? `${formatUnits(cap, decimals)} deployable everywhere` : "nothing deployable"}
-        </span>
+        <h2>Positions</h2>
+        <span className="label">05 / Book</span>
       </div>
 
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Chain</th>
-              <th>Spender</th>
-              <th className="num">Held</th>
-              <th className="num">Still deployable</th>
-              <th>Expiry</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => {
-              const chain = chainById(r.chainId);
-              const over = r.balance !== undefined && r.remaining !== undefined && r.remaining > r.balance;
+      {assets.length === 0 ? (
+        <p className="note">No approved positions indexed.</p>
+      ) : (
+        <div className="table-wrap blotter">
+          <table>
+            <thead>
+              <tr>
+                <th>Asset</th>
+                <th>Chain</th>
+                <th>Counterparty</th>
+                <th className="num">Held</th>
+                <th className="num">Deployable</th>
+                <th>Reach</th>
+                <th className="num">Drawn</th>
+                <th>Expires</th>
+              </tr>
+            </thead>
+            {assets.map(([symbol, group]) => {
+              const decimals = group[0]?.decimals ?? 6;
+              // A strategy has to fit the weakest chain it runs on, so the asset line carries the
+              // smallest live allowance, not the sum.
+              const floor = group.reduce(
+                (m, r) => (r.remaining !== undefined && r.remaining < m ? r.remaining : m),
+                2n ** 255n,
+              );
+              const cap = floor === 2n ** 255n ? 0n : floor;
               return (
-                <tr key={`${r.chainId}:${r.token}:${r.spender}`}>
-                  <td>{chain?.name ?? r.chainId}</td>
-                  <td>
-                    <a href={`${chain?.explorer ?? ""}/address/${r.spender}`} target="_blank" rel="noreferrer">
-                      {short(r.spender)}
-                    </a>
-                  </td>
-                  <td className="num">{r.balance === undefined ? "—" : formatUnits(r.balance, r.decimals)}</td>
-                  <td className="num">
-                    {r.remaining === undefined ? (
-                      <span title="the read failed — unknown, not zero">unknown</span>
-                    ) : (
-                      formatUnits(r.remaining, r.decimals)
-                    )}
-                    {over && <span className="sub-line">exceeds the holding — authority that cannot be honoured</span>}
-                  </td>
-                  <td>{r.expiration === undefined ? "—" : when(r.expiration)}</td>
-                </tr>
+                <tbody key={symbol}>
+                  <tr className="grp-row">
+                    <th colSpan={3} scope="colgroup">
+                      {symbol}
+                    </th>
+                    <td colSpan={5} className="num">
+                      <span className={`tag ${cap > 0n ? "active" : "awaiting"}`}>
+                        {cap > 0n ? `${formatUnits(cap, decimals)} deployable on every chain` : "nothing deployable"}
+                      </span>
+                    </td>
+                  </tr>
+                  {group.map((r) => {
+                    const chain = chainById(r.chainId);
+                    const held = Number(r.balance ?? 0n);
+                    const live = Number(r.remaining ?? 0n);
+                    const over = r.balance !== undefined && r.remaining !== undefined && r.remaining > r.balance;
+                    const drawn = r.remaining === undefined || r.granted === 0n ? undefined : r.granted - r.remaining;
+                    return (
+                      <tr key={`${r.chainId}:${r.token}:${r.spender}`}>
+                        <td className="mono">{r.symbol}</td>
+                        <td>
+                          <ChainTag chainId={r.chainId} />
+                        </td>
+                        <td>
+                          <a
+                            className="mono"
+                            href={`${chain?.explorer ?? ""}/address/${r.spender}`}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            {short(r.spender, 5)}
+                          </a>
+                        </td>
+                        <td className="num mono">{r.balance === undefined ? "—" : formatUnits(r.balance, r.decimals)}</td>
+                        <td className="num mono">
+                          {r.remaining === undefined ? "unknown" : formatUnits(r.remaining, r.decimals)}
+                        </td>
+                        <td>
+                          <Meter
+                            value={live}
+                            of={Math.max(held, live)}
+                            tone={over ? "bad" : live > 0 ? "ok" : "warn"}
+                          />
+                        </td>
+                        <td className="num mono">{drawn === undefined ? "—" : formatUnits(drawn, r.decimals)}</td>
+                        <td>
+                          <span className={`tag ${over ? "bad" : live > 0 ? "ok" : "warn"}`}>
+                            {over ? "over the holding" : r.expiration === undefined ? "—" : when(r.expiration)}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
               );
             })}
-          </tbody>
-        </table>
-      </div>
-
-      <h3 className="grp">What this mandate can be put into</h3>
-      {routable.length === 0 ? (
-        <p className="note">
-          Nothing is routable for {symbol} on these terms. Every row below says which of the four gates it failed: no
-          deployment, wrong chain, too short, or too small.
-        </p>
-      ) : (
-        routable.map((r) => <Rec key={r.strategy.key} rec={r} decimals={decimals} ttl={ttl} />)
+          </table>
+        </div>
       )}
-
-      <h3 className="grp">Hedge overlays</h3>
-      <p className="sub">
-        What a fund desk would actually reach for on a book like this — and, for each, the leg that does not exist
-        here. None of these is a button, and the reason is on the row.
+      <p className="note">
+        Held is the client&rsquo;s own balance; deployable is what the counterparty may draw today. A balance with no
+        allowance behind it is not capital this desk can work with.
       </p>
-      {hedges.map((r) => (
-        <Rec key={r.strategy.key} rec={r} decimals={decimals} ttl={ttl} />
-      ))}
-
-      {designed.length > 0 && (
-        <>
-          <h3 className="grp">Measured, but not reachable from here</h3>
-          {designed.map((r) => (
-            <Rec key={r.strategy.key} rec={r} decimals={decimals} ttl={ttl} />
-          ))}
-        </>
-      )}
     </div>
-  );
-}
-
-function Rec({ rec, decimals, ttl }: { rec: Recommendation; decimals: number; ttl: number }) {
-  const s = rec.strategy;
-  return (
-    <section className={`rec ${rec.routable ? "on" : "off"}`} aria-labelledby={`rec-${s.key}`}>
-      <div className="rec-head">
-        <h4 id={`rec-${s.key}`}>{s.venue}</h4>
-        <span className="micro kindtag">{s.kind}</span>
-        <span className={`tag ${rec.routable ? "active" : "awaiting"}`}>
-          {rec.routable ? `routable on ${rec.on.map((id) => chainById(id)?.short ?? id).join(" · ")}` : "not routable"}
-        </span>
-        <span className="micro score" title="fit against this mandate's own terms — not a prediction of returns">
-          fit {rec.score}
-        </span>
-      </div>
-      <p>{s.what}</p>
-
-      <dl className="kv-list">
-        <div className="kv">
-          <dt className="micro">Rate</dt>
-          <dd>{s.apy === null ? "not quotable" : pct(s.apy)}</dd>
-        </div>
-        <div className="kv">
-          <dt className="micro">Over {ttl}h</dt>
-          <dd>
-            {rec.projectedUnits === null ? "—" : `+${formatUnits(rec.projectedUnits, decimals)}`}
-            {rec.projectedUnits !== null && !rec.routable ? " (if it were reachable)" : ""}
-          </dd>
-        </div>
-        <div className="kv">
-          <dt className="micro">Legs</dt>
-          <dd>{s.legs.join(" → ")}</dd>
-        </div>
-      </dl>
-
-      <p className="note">
-        <strong>Evidence.</strong> {s.evidence}
-      </p>
-      <p className="note">
-        <strong>Costs.</strong> {s.risks.join(". ")}.
-      </p>
-      {rec.blocked ? (
-        <p className="note blocked">
-          <strong>Blocked.</strong> {rec.blocked}. Shown rather than hidden, because a desk asking what it could do
-          with this mandate deserves the real answer and the reason it is not one.
-        </p>
-      ) : (
-        <div className="row">
-          <span className="micro">
-            {s.key === "v4-lp" || s.key === "v4-swap"
-              ? "armed from the pools panel above, against the live pool"
-              : rec.because.join(" · ")}
-          </span>
-        </div>
-      )}
-    </section>
   );
 }
 
@@ -754,69 +833,43 @@ function Activity({ activity, uncovered }: { activity: ReturnType<typeof useActi
   return (
     <div className="panel">
       <div className="sec-head">
-        <h2>Everything the control plane recorded</h2>
+        <h2>History</h2>
         <span className="label">06 / MultiBaas event ledger</span>
       </div>
-      <p className="sub">
-        Decoded from indexed <span className="mono">Permit</span>, <span className="mono">Lockdown</span> and{" "}
-        <span className="mono">NonceInvalidated</span> events. Ordered by the timestamp the client signed, which is the
-        ordering CrossPermit itself applies — not by the block that happened to land first.
-      </p>
 
       {activity === null && <p className="note">Reading…</p>}
-      {activity === false && <p className="note">The control plane did not answer. History unknown, not empty.</p>}
+      {activity === false && <p className="note">Control plane silent — unknown, not empty.</p>}
       {activity && activity.rows.length === 0 && (
-        <p className="note">
-          Nothing indexed for this account yet
-          {uncovered.length ? " on the chains MultiBaas covers" : ""}.
-        </p>
+        <p className="note">Nothing indexed yet.</p>
       )}
       {activity && activity.rows.length > 0 && (
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Signed at</th>
-                <th>What</th>
-                <th>Chain</th>
-                <th>Token</th>
-                <th>Spender</th>
-                <th className="num">Amount</th>
-                <th>Record</th>
-              </tr>
-            </thead>
-            <tbody>
-              {activity.rows.map((r, i) => (
-                <tr key={`${r.txHash}:${i}`}>
-                  <td>{r.timestamp ? new Date(r.timestamp * 1000).toISOString().replace("T", " ").slice(0, 16) : "—"}</td>
-                  <td>
-                    <span className={`tag ${r.kind === "granted" ? "active" : r.kind === "locked" ? "bad" : "warn"}`}>
-                      {KIND[r.kind]}
-                    </span>
-                  </td>
-                  <td>{r.chainName}</td>
-                  <td>{r.token ? short(r.token, 4) : "—"}</td>
-                  <td>{r.spender ? short(r.spender, 4) : "—"}</td>
-                  <td className="num">{r.amount ? formatUnits(BigInt(r.amount), 6) : "—"}</td>
-                  <td>
-                    {r.explorer ? (
-                      <a href={r.explorer} target="_blank" rel="noreferrer">
-                        {short(r.txHash ?? "", 6)}
-                      </a>
-                    ) : (
-                      "—"
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <ol className="timeline">
+          {activity.rows.map((r, i) => (
+            <li key={`${r.txHash}:${i}`} className={`ev ${r.kind}`}>
+              <span className="when micro">
+                {r.timestamp ? new Date(r.timestamp * 1000).toISOString().replace("T", " ").slice(5, 16) : "—"}
+              </span>
+              <span className={`tag ${r.kind === "granted" ? "active" : r.kind === "locked" ? "bad" : "warn"}`}>
+                {KIND[r.kind]}
+              </span>
+              <ChainTag chainId={r.chainId} />
+              <span className="amt mono">{r.amount ? formatUnits(BigInt(r.amount), 6) : "—"}</span>
+              <span className="micro who">
+                {r.spender ? short(r.spender, 4) : "—"} ← {r.token ? short(r.token, 4) : "—"}
+              </span>
+              {r.explorer ? (
+                <a className="micro" href={r.explorer} target="_blank" rel="noreferrer">
+                  {short(r.txHash ?? "", 5)}
+                </a>
+              ) : (
+                <span className="micro">—</span>
+              )}
+            </li>
+          ))}
+        </ol>
       )}
       <p className="note">
-        Covers {activity ? activity.covered.length : 0} of {CHAINS.length} chains. An allowance that has since expired
-        left no storage behind but did leave a row here, which is why this table and the deployable figures above can
-        legitimately disagree.
+        {activity ? activity.covered.length : 0}/{CHAINS.length} chains indexed · expired grants live only here.
       </p>
     </div>
   );

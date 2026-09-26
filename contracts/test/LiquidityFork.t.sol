@@ -77,13 +77,21 @@ contract LiquidityForkTest is Test {
         uint48 ts = uint48(block.timestamp);
         uint48 deadline = ts + 1 hours;
 
-        // 1. Before the writ exists, the desk can do nothing with the client's money.
+        // 1. Before the client registers it, the desk is not a caller this contract knows.
         vm.prank(desk);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSelector(LiquidityDesk.NotAuthorised.selector, client, desk));
         liquidityDesk.add(client, key, TICK_LOWER, TICK_UPPER, CLIENT_LIQUIDITY, MAX_PULL, MAX_PULL);
 
-        // 2. One signature, two tokens, one chain: the liquidity writ.
+        // 2. One signature, two tokens, one chain: the liquidity writ. Plus the one on-chain act
+        //    that says WHICH desk may spend it — the writ bounds the amount, not the pool.
         _signLiquidityWrit(chainId, deadline, ts);
+        vm.prank(client);
+        liquidityDesk.setOperator(desk, true);
+
+        // An outsider the client never named is still nobody, writ or no writ.
+        vm.prank(outsider);
+        vm.expectRevert(abi.encodeWithSelector(LiquidityDesk.NotAuthorised.selector, client, outsider));
+        liquidityDesk.add(client, key, TICK_LOWER, TICK_UPPER, CLIENT_LIQUIDITY, MAX_PULL, MAX_PULL);
 
         (uint160 allowed0,,) = crossPermit.allowance(client, address(token0), address(liquidityDesk));
         (uint160 allowed1,,) = crossPermit.allowance(client, address(token1), address(liquidityDesk));

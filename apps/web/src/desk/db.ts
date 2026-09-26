@@ -4,9 +4,10 @@
 // and what lives here is only the fact that some manager created it. That split is deliberate — the
 // relayer can be redeployed, or replaced by someone else's, without taking the tenancy with it.
 //
-// libSQL rather than `bun:sqlite`, because this now runs inside the Next app on a host with no
-// durable filesystem: a file written by one invocation is not there for the next. Same SQL, same
-// schema, same statements — the only change is that every call is async.
+// libSQL rather than `bun:sqlite`, because the same client speaks both `file:` and a remote Turso
+// URL. Locally that is a plain SQLite file next to the repo and there is nothing to set up; on a
+// host with no durable filesystem, set TURSO_DATABASE_URL and the only thing that changes is where
+// the bytes land.
 import { type Client, createClient } from "@libsql/client";
 
 export type Manager = { address: string; name: string; createdAt: number };
@@ -63,9 +64,29 @@ const SCHEMA = `
  */
 let opening: Promise<Client> | null = null;
 
-export function open(url = process.env.TURSO_DATABASE_URL, authToken = process.env.TURSO_AUTH_TOKEN): Promise<Client> {
+/** No TURSO_DATABASE_URL means running locally, where a SQLite file is the whole of the setup. */
+const LOCAL_FILE = "file:.desk.db";
+
+/**
+ * …which is true on a laptop and false on a serverless host, where the filesystem is read only.
+ *
+ * Left as a fallback there, the first `CREATE TABLE` fails somewhere inside libSQL on whichever
+ * request happened to be first, and the operator reads an EROFS rather than the one sentence that
+ * fixes it. Said here instead, at the first touch of the store, in words.
+ */
+export const configError =
+  (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) && !process.env.TURSO_DATABASE_URL
+    ? "TURSO_DATABASE_URL is not set. This host has a read-only filesystem, so the local SQLite fallback cannot be created: point TURSO_DATABASE_URL, and TURSO_AUTH_TOKEN, at a Turso database."
+    : null;
+
+if (configError) console.error(`crosspermit-desk: ${configError}`);
+
+export function open(
+  url = process.env.TURSO_DATABASE_URL || LOCAL_FILE,
+  authToken = process.env.TURSO_AUTH_TOKEN,
+): Promise<Client> {
+  if (configError && url === LOCAL_FILE) throw new Error(configError);
   if (!opening) {
-    if (!url) throw new Error("TURSO_DATABASE_URL is not set — the desk has nowhere to keep its tenancy");
     const client = createClient({ url, authToken });
     opening = client.executeMultiple(SCHEMA).then(() => client);
   }

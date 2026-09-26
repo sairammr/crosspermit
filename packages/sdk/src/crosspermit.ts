@@ -68,6 +68,25 @@ export const lockEntry = (token: Address, spender: Address): Entry => ({
   amountDelta: 0n,
 });
 
+/**
+ * Every LOCK needed to retract a token from EVERY spender it was ever granted to, on every chain —
+ * shaped as `prepareIntent`'s `chains`, so revocation is one signature like the grant was.
+ *
+ * A lock is per (owner, token, spender), so "revoke the mandate" is not one entry, it is one entry
+ * per spender the mandate named. A caller that locks only the router it happens to remember leaves
+ * the other spender live with the allowance still outstanding — and the UI, which lists what was
+ * revoked rather than what remains, shows nothing wrong.
+ */
+export const revokeEntries = (
+  chains: { chainId: number; tokens: Address[]; spenders: Address[] }[],
+): { chainId: number; permits: Entry[] }[] =>
+  chains.map((c) => {
+    if (c.tokens.length === 0 || c.spenders.length === 0) {
+      throw new Error(`chain ${c.chainId}: a revocation needs at least one token and one spender`);
+    }
+    return { chainId: c.chainId, permits: c.tokens.flatMap((t) => c.spenders.map((s) => lockEntry(t, s))) };
+  });
+
 // ---------- Leaves ----------
 
 /** `CrossPermit.CHAIN_PERMITS_TYPEHASH`. */

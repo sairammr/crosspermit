@@ -20,27 +20,34 @@ through Uniswap's own unmodified Universal Router.
 
 ## Status
 
-| Phase | Deliverable | State |
-|---|---|---|
-| P0 | Monorepo, pinned toolchain, license posture | **done** |
-| P1 | L1 contracts rebranded, restructured, compiling | **done** |
-| P2 | TS SDK — bundles, leaves, merkle, one signature | **done** |
-| P3 | Test suite ported and green | **done** |
-| P4 | Deterministic deploy, address reproduced, 3 testnets live | **done** |
-| P5 | Relayer — one click, N chains | **done** |
-| P6 | MultiBaas treasury adapter | **done** |
-| P7 | Aave v4 yield + tokenized-equity desk | **done** |
-| P8 | Institutional dashboard (WalletConnect) | **done** |
-| P9 | Hardening — fuzz, invariants, threat model, ops runbook | **done** |
+Spot-checked against the tree rather than against the plan, because a plan that marks
+itself done is not evidence.
+
+| Phase | Deliverable | State | What is missing |
+|---|---|---|---|
+| P0 | Monorepo, pinned toolchain, license posture | **shipped** | |
+| P1 | L1 contracts rebranded, restructured, compiling | **shipped** | |
+| P2 | TS SDK — bundles, leaves, merkle, one signature | **shipped** | |
+| P3 | Test suite ported and green | **shipped** | |
+| P4 | Deterministic deploy, address reproduced, 3 testnets live | **shipped** | contracts unverified on the explorers |
+| P5 | Relayer — one click, N chains | **partial** | `GET /v1/quote` does not exist. Execution is one serialised promise per chain (`apps/relayer/src/relayer.ts:122-129`) — no fee escalation, no nonce lease, no backoff, no circuit breaker. Idempotency is `keccak256(owner‖salt‖root)`, not `(owner, salt, chainId)`. No anvil chaos test; the kill-mid-fan-out behaviour is covered by unit tests over a fake chain, and stranded legs are reported at boot, never auto-retried. |
+| P6 | MultiBaas treasury adapter | **partial** | Cloud Wallet signing is compile-checked only. `bun run smoke:multibaas` is defined by no package — the script is `bun run packages/multibaas/scripts/smoke.ts`. Two of three chains covered. |
+| P7 | Aave v4 yield + tokenized-equity desk | **partial** | `YieldRouter` and `EquityDesk` are fork-tested and deployed on no chain. `PositionRegistry` was never written — zero hits repo-wide. The equity venue adapter is a mock. |
+| P8 | Institutional dashboard (WalletConnect) | **shipped** | the kill switch is a CLI signature (`lifecycle.ts`), not a dashboard button |
+| P9 | Hardening — fuzz, invariants, threat model, ops runbook | **partial** | see the corrected description under P9; the relayer property and chaos tests were not written |
 
 ### Live addresses
 
-| | address |
-|---|---|
-| **CrossPermit** (all three chains) | `0x659C6F027FC4F6b2fF7A18dF1e3C3ec78a99de1B` |
-| Router — Ethereum Sepolia | `0x010C1aB71984b7D53b0941d4A7537AE3B806078D` |
-| Router — Base Sepolia | `0xd72f799E1af27E0d95aB4B9658A277A7811Fbcd0` |
-| Router — Optimism Sepolia | `0xda3ab7325840F2d1E01cA66dBBEF88078FE34287` |
+`deployments/*.json` is the source of truth and the only place addresses are written down.
+This file used to carry a router table and all three entries were wrong, which is exactly
+the failure mode a second copy has. The README's **Deployed addresses** table is built from
+the same files.
+
+**CrossPermit** is `0x659C6F027FC4F6b2fF7A18dF1e3C3ec78a99de1B` on all three chains
+(`deployments/crosspermit.json`); routers are in `deployments/router-*.json`, the v4 LP
+adapters in `deployments/liquidity-*.json`, the mock tokens and seeded pools in
+`deployments/token*-*.json` and `v4pool-*.json`. The deployed LiquidityDesks predate the
+`add` authorisation gate and must be redeployed before anyone is pointed at them.
 
 Salt `0xb2af67d67b308054b26d8fb210cab127bf699e936190ed01dd9052e7736d1c8c`
 (`keccak256("CrossPermit v1")`), via ERC-2470, solc 0.8.27 / optimizer 1e6 runs.
@@ -66,27 +73,45 @@ chain there could never carry a control-plane audit trail.
 ## Architecture
 
 ```
-                         ┌─────────────────────────────┐
-  institution ──signs────▶  ONE EIP-712 CrossPermit     │
-   (1 click)              │  merkleRoot over N bundles  │
-                         └──────────────┬──────────────┘
-                                        │  root + bundles + proofs
-                         ┌──────────────▼──────────────┐
-                         │      crosspermit-relayer    │
-                         │  verify → fan out → stream  │
-                         │  (MultiBaas Cloud Wallet    │
-                         │   or local signer)          │
-                         └───┬────────┬────────┬───────┘
-          ┌──────────────────┘        │        └──────────────────┐
-   ┌──────▼──────┐            ┌───────▼─────┐            ┌────────▼────┐
-   │  Ethereum   │            │    Base     │            │  Unichain   │
-   │ CrossPermit │            │ CrossPermit │            │ CrossPermit │
-   │  0xSAME…    │            │  0xSAME…    │            │  0xSAME…    │
-   └──────┬──────┘            └──────┬──────┘            └──────┬──────┘
-          │ allowance                │                          │
-   ┌──────▼──────────────────────────▼──────────────────────────▼──────┐
-   │  spenders: Uniswap Universal Router · Aave v4 spoke · RWA desk     │
-   └───────────────────────────────────────────────────────────────────┘
+  client machine — no chain involved yet
+  ┌──────────────────────────────────────────────────────────────────────────────┐
+  │  one permit bundle per chain.  chainId is a FIELD of the bundle:              │
+  │                                                                              │
+  │    bundle[11155111]        bundle[84532]           bundle[11155420]          │
+  │         │                       │                        │                   │
+  │    hashChainPermits        hashChainPermits         hashChainPermits          │
+  │         │  leaf                 │  leaf                  │  leaf             │
+  │         └──────────┬────────────┴───────────┬────────────┘                   │
+  │                    └─ left-leaning merkle ──┴────▶  root                     │
+  │                                                      │                       │
+  │   ONE EIP-712 signature, 65 bytes, over that root ◀──┘                       │
+  │     domain.chainId        = 1            (a constant, never the live chain)  │
+  │     domain.verifyingContract = 0x659C…de1B  (same CREATE2 address everywhere)│
+  └──────────────────────────────────────┬───────────────────────────────────────┘
+                                         │
+        ┌────────────────────────────────┴──────────────────────────────┐
+        │  apps/relayer — OPTIONAL. one POST, N chains, simulate first.  │
+        │  it can censor and reorder; it cannot change a recipient,      │
+        │  a spender or an amount. the client can submit any chain       │
+        │  itself with the same signature.                               │
+        └───┬───────────────────────┬───────────────────────┬────────────┘
+            │ bundle+proof+sig      │                       │
+  ══════════▼═══════════  ══════════▼═══════════  ══════════▼═══════════
+   Ethereum Sepolia        Base Sepolia            Optimism Sepolia
+   11155111                84532                   11155420
+   CrossPermit 0x659C…     CrossPermit 0x659C…     CrossPermit 0x659C…
+   ─────────────────────   ─────────────────────   ─────────────────────
+    1  deadline not passed
+    2  bundle.chainId == block.chainid      ← the cross-chain replay stop
+    3  salt burned in THIS chain's registry ← why one sig works 3×, not 6×
+    4  proof folded to a root, signature recovered to owner over it
+    ⇒  allowances written to this chain's ledger
+  ══════════╤═══════════  ══════════╤═══════════  ══════════╤═══════════
+            │                       │                       │
+            ▼                       ▼                       ▼
+   Uniswap Universal Router — UNMODIFIED, deployed with permit2 := CrossPermit
+   V4_SWAP → V4SwapRouter → SETTLE_ALL → _payStandard → payOrPermit2Transfer
+           → PERMIT2.transferFrom(owner → PoolManager)   ← selector-identical
 ```
 
 Why one address everywhere is non-negotiable: the EIP-712 domain pins
@@ -113,9 +138,9 @@ surface. Rename map:
 | `INonceManager` | `ISaltRegistry` | |
 | `MultiTokenPermit` | `MultiTokenTransfer` | ERC20/721/1155 transfer surface |
 | `IMultiTokenPermit` | `IMultiTokenTransfer` | |
-| `TypedEncoder` | `WitnessEncoder` | moved `libs/` → `lib/` |
+| `TypedEncoder` | `WitnessEncoder` | moved `libs/` → `lib/`; **since deleted** — nothing imported it |
 | `ERC7702TokenApprover` | `ERC7702Approver` | |
-| `Permit3ApproverModule` | `CrossPermitApproverModule` | |
+| `Permit3ApproverModule` | `ERC7579ApproverModule` | **since deleted** — nothing imported it, and this tree advertises no ERC-7579 module support |
 | `SIGNED_PERMIT3_TYPEHASH` | `SIGNED_CROSSPERMIT_TYPEHASH` | new type string ⇒ new typehash |
 | `CANCEL_PERMIT3_TYPEHASH` | `CANCEL_CROSSPERMIT_TYPEHASH` | |
 | `PERMIT_WITNESS_TYPEHASH_STUB` | `CROSSPERMIT_WITNESS_TYPEHASH_STUB` | |
@@ -213,9 +238,12 @@ the three live testnets.
 - Router half: clone Uniswap's Universal Router at a pinned commit, patch exactly
   one `permit2` literal per chain's deploy parameters (count literals, not lines),
   deploy, then restore the clone. `PERMIT2` is an internal immutable with no
-  getter, so the substitution is confirmed three ways: the deploy log, the
-  broadcast artifact's constructor args, and the CrossPermit address appearing in
-  the router's deployed runtime bytecode.
+  getter, so it cannot be read off the deployed router. Two artifacts stand in:
+  the deploy log (`deployments/router-<chain>.log`, line 10, `permit2: 0x659C…`)
+  and — the one that actually proves it — `FORK=1 forge test --match-contract
+  RouterFork`, a live `V4_SWAP` that settles out of a CrossPermit allowance and
+  out of nothing else. There is no runtime-bytecode grep in this repo; earlier
+  versions of this file and the README both claimed one.
 - `deployments/*.json` records address, salt, factory, compiler settings and
   chain ids so a clean clone can re-derive the address from the repo alone.
 
@@ -231,7 +259,9 @@ deployments and assert they are byte-identical.
 POST /v1/intents          → { intentId }        submit a signed intent
 GET  /v1/intents/:id      → status snapshot
 GET  /v1/intents/:id/sse  → live per-chain event stream
-GET  /v1/quote            → per-chain gas estimate before signing
+GET  /v1/intents          → recent intents (desk key)
+GET  /v1/chains           → what this relayer serves, and with whose key
+GET  /v1/quota/:addr      → an owner's remaining rate and gas budget (desk key)
 GET  /healthz /readyz     → ops
 ```
 
@@ -245,7 +275,9 @@ into insolvency:
 4. `processProof(leaf, proof) == root` for every chain.
 5. `signature` recovers to `owner` over the CrossPermit domain — EOA via ECDSA,
    contract accounts via ERC-1271.
-6. Idempotency on `(owner, salt, chainId)`; a replay returns the first result.
+6. Idempotency on `keccak256(owner‖salt‖root)` — the signed fields only, so two
+   byte-different but equally valid ECDSA signatures collide into one intent rather
+   than two (`packages/sdk/src/intent.ts:74-82`). A replay is answered from state.
 7. Per-chain simulation (`eth_call`) before broadcast. A bundle that would revert
    is rejected, not submitted.
 
@@ -258,15 +290,26 @@ are censorship (not submitting) and ordering — both mitigated by the client be
 able to submit any chain itself, unchanged. That fallback is a product
 requirement, not a nicety: it is what keeps the relayer non-custodial.
 
-**Execution.** Per-chain worker, bounded concurrency, EIP-1559 fee escalation,
-nonce lease per signer, exponential backoff, and a circuit breaker per chain.
-Signing through the MultiBaas Cloud Wallet + Transaction Manager where
-configured (P6), local `privateKey` signer otherwise. State in SQLite, one row
-per (intent, chain), so a restart resumes rather than double-submits.
+**Execution, as built.** One serialised promise chain per chain, so legs proceed in
+parallel across chains and in order within one (`apps/relayer/src/relayer.ts:122-129`).
+Receipts are waited to **2 confirmations**, so a block reorged out cannot leave a permanent
+`confirmed` row. There is deliberately no fee escalation, no nonce lease, no backoff and no
+circuit breaker: those were planned and are not here. Signing through the MultiBaas Cloud
+Wallet + Transaction Manager where configured (P6), local `privateKey` signer otherwise.
+State in SQLite, one row per (intent, chain), with `broadcastAt` recorded on the first move
+to `submitted`.
 
-**Verification:** three anvil chains carrying the real testnet chain ids; assert
-one POST ⇒ three confirmed permits; kill the relayer mid-fan-out and assert the
-restart neither double-submits nor strands a chain.
+**A restart never retries.** A leg stuck in `submitting` may have a transaction in the
+mempool whose hash was never seen; a leg in `submitted` has one whose receipt was never read
+back. Either could become two allowances on chain, so `store.stranded()` reports both at boot
+with their hash and stops there. No sweeper.
+
+**Verification, as built.** `apps/relayer/test/relayer.test.ts` drives the engine against a
+fake chain: one POST ⇒ every leg, exact `gasUsed × effectiveGasPrice` charged per leg across
+two chains, a reverted receipt still charged, `confirmations === 2`, a receipt-watch throw
+leaving the leg `submitted` with a hash and an SSE error event, and a broadcast failure
+leaving it `failed` with no hash and no charge. The three-anvil chaos test in the original
+plan was not written.
 
 ## P6 — MultiBaas as the treasury platform (done)
 
@@ -297,8 +340,10 @@ Design rules:
   addresses.
 
 **Verification:** adapter contract tests against a recorded-fixture server in
-no-key mode; a live smoke test (`bun run smoke:multibaas`) the moment credentials
-land.
+no-key mode; `bun run packages/multibaas/scripts/smoke.ts` against a live deployment.
+ABI registration and per-chain address linking are their own runnable step,
+`bun run packages/multibaas/scripts/register-crosspermit.ts`, which reads `listAddresses`
+back so `linked` is verified rather than assumed and exits 1 if a chain failed to link.
 
 ## P7 — Institutional: yield and RWA
 
@@ -319,8 +364,9 @@ liquidity depth.
   compounding of it; both returned in ray with the basis stated in the ABI docs,
   because a treasury that mistakes one for the other misreports its own returns.
 - Per-spoke caps and an allowlist, so a mispriced spoke cannot absorb the book.
-- `PositionRegistry` — per-account, per-chain position accounting, so the
-  dashboard and the auditor read the same numbers.
+- ~~`PositionRegistry` — per-account, per-chain position accounting~~ — **never written.**
+  The dashboard reads positions from chain storage and from the MultiBaas event ledger
+  instead, and shows both rather than reconciling them.
 
 ### Tokenized-equity desk (NVDA and peers)
 
@@ -342,9 +388,13 @@ matter. Both are ERC-20s with a regulated custodian holding the underlying 1:1.
   product decision of who may trade is the operator's; the contract's job is to
   make that decision explicit and enforced rather than implicit.
 
-**Verification:** fork tests against live mainnet Aave v4 and the live NVDAon /
-NVDAx tokens — supply, accrue, withdraw, and a round-trip buy/sell with the
-allowance ending at zero. No mainnet broadcast.
+**Verification:** `contracts/test/TreasuryFork.t.sol`, against live mainnet Aave v4 and the
+live NVDAon token — supply, warp thirty days, withdraw, and a round-trip buy/sell. No
+mainnet broadcast, and nothing deployed: neither contract has a `deployments/*.json` entry.
+The fork is taken at HEAD with no pinned block, so the yield and the rates differ every run;
+the suite asserts `out > 0`, `apy >= apr` and a sane APR rather than fixed figures.
+`EquityDesk.buy` is owner-only (`NotOwner(address owner, address caller)`) — this desk has
+no operator registry, so it cannot fill on a client's behalf.
 
 ## P8 — Institutional dashboard
 
@@ -368,16 +418,28 @@ without its simulation having succeeded.
 
 ## P9 — Hardening
 
-- Fuzz `leafOf` and the merkle builder against the contract (parity under random
-  bundle shapes, 1..32 leaves).
-- Invariants: allowance never exceeds what was signed; a `LOCK` cannot be
-  bypassed by any ordering; the same bundle cannot apply twice on one chain.
-- Relayer: property test that no validated intent is ever submitted to the wrong
-  chain, and a chaos test that kills workers mid-fan-out.
+Three different tests, routinely conflated into one claim. What each actually covers:
+
+- `contracts/test/LeafParity.t.sol` — **six committed fixtures**, not a fuzz. The SDK's
+  `leafOf` output is written to `contracts/fixtures/leaf-fixtures.txt` by `gen-fixtures.ts`,
+  regenerated from the working tree by `script/test.sh`, and asserted against
+  `hashChainPermits`.
+- `contracts/test/MerkleParity.t.sol` — **the real SDK-vs-contract parity**, over committed
+  proofs for tree sizes 1..8: every proof the client produced folds back to the root under
+  OpenZeppelin's sorted-pair hashing on chain.
+- `contracts/test/Invariants.t.sol` — **fuzzes the contract against itself**, 1..32 leaves.
+  No TypeScript enters, and its tree is a Solidity reimplementation, so it cannot catch SDK
+  drift. What it does catch: an allowance never exceeds what was signed, a `LOCK` cannot be
+  raised by a grant, a burnt salt stays burnt, `DECREASE` floors at zero, a proof does not
+  cover another leaf, and the leaf is injective and order-sensitive.
+- `contracts/test/LiquidityDeskAuth.t.sol` — the `add` authorisation gate, offline.
+- Relayer property and chaos tests: **not written.** `apps/relayer/test/relayer.test.ts`
+  covers the receipt → charge → budget loop against a fake chain instead.
 - Threat model doc: hostile RPC, hostile relayer, compromised relayer key,
   compromised MultiBaas key, reorg during fan-out, and a griefing economic
   analysis.
-- Ops runbook: key rotation, per-chain circuit breaker, incident response.
+- Ops runbook: key rotation and incident response — `docs/runbook.md`. The per-chain
+  circuit breaker it planned does not exist.
 
 ---
 
@@ -408,6 +470,9 @@ Recorded rather than quietly dropped.
 | Optimism Sepolia has no MultiBaas deployment | the free tier caps at two, and both are used (Base Sepolia, Ethereum Sepolia). A plan upgrade, not a code change. |
 | Cloud Wallet path unexercised live | a MultiBaas Cloud Wallet is backed by an external provider — Azure Key Vault, with a client id, secret, tenant and subscription — and HSM-protected keys need a Premium vault. That is an Azure account and a real cost, so it cannot be provisioned from here. `cloudWalletSigner` is written and compile-checked; custody is `local` on every chain until someone attaches a vault. |
 | Contracts unverified on the explorers | needs an Etherscan API key, which this environment does not have. |
-| Reorg detection | a leg reported `confirmed` is not re-checked if its block is reorged out. Acceptable on testnets, not on an L1 carrying value. |
+| Reorg detection | receipts are now waited to 2 confirmations, which makes a `confirmed` row much harder to un-confirm, but a leg is still never re-checked afterwards. Acceptable on testnets, not on an L1 carrying value. |
+| The deployed LiquidityDesks predate the `add` gate | all three carry the ungated bytecode and must be redeployed. `liquidity-demo.ts` and the dashboard's **Add to the pool** button also still call `add` without a `setOperator` step, so they will revert against a gated desk. |
+| `treasury/` is deployed on no chain | `YieldRouter` and `EquityDesk` exist only in the mainnet-fork suite. |
+| The kill switch is a CLI signature | `lifecycle.ts`'s `lock` stage and `revokeEntries()` cover every spender; the dashboard can only withdraw an invitation, which closes no exposure. |
 | Equity venue adapter | NVDAon's on-chain route is the issuer's gated mint/redeem window, not an AMM a fork can trade against. The desk's own guards are proved; the venue is a mock. |
 | MultiBaas keys are Administrators-scope | Internal Users is the production posture. An Administrators key can rewrite the audit record. |

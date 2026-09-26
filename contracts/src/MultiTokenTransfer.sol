@@ -247,6 +247,14 @@ abstract contract MultiTokenTransfer is AllowanceLedger, IMultiTokenTransfer {
         (, bytes memory revertDataPerId) = _updateAllowance(from, encodedId, msg.sender, amount);
 
         if (revertDataPerId.length > 0) {
+            // A locked per-tokenId allowance is a decision, not a missing approval: falling through
+            // to the collection key would let the owner's lockdown be walked around by the very key
+            // they locked. The mirror case — a locked collection, specific id approved — is caught
+            // in the else branch below.
+            if (bytes4(revertDataPerId) == AllowanceLocked.selector) {
+                _revert(revertDataPerId);
+            }
+
             // Fallback: if no specific token approval exists, check for collection-wide approval
             // Collection-wide approval uses the token address as the key
             bytes32 collectionKey = bytes32(uint256(uint160(token)));

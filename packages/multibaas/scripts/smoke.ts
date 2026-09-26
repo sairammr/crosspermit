@@ -8,6 +8,7 @@ import { readFileSync } from "node:fs";
 import type { Address } from "viem";
 
 import { MultiBaas, Treasury, multibaasFromEnv, verifyWebhook } from "../src/index.js";
+import { registerCrossPermit, servedChains } from "./register-crosspermit.js";
 
 const here = (p: string) => new URL(`../../../${p}`, import.meta.url);
 const readJson = (p: string) => JSON.parse(readFileSync(here(p), "utf8"));
@@ -29,9 +30,6 @@ async function main() {
   const mb = new MultiBaas(cfg);
   const chainId = Number(process.env.MULTIBAAS_CHAIN_ID ?? 84532);
   const crossPermit = readJson("deployments/crosspermit.json").address as Address;
-  const artifact = readJson("contracts/out/CrossPermit.sol/CrossPermit.json");
-  const abi = artifact.abi;
-  const bin = artifact.bytecode.object as string;
   const owner = (process.env.SMOKE_OWNER ?? "0x9673afB923d556979E4dfe6854d8C6e2D9994Eb4") as Address;
 
   console.log("--- identity ---");
@@ -52,20 +50,15 @@ async function main() {
   check(txm !== null, "transaction manager reachable", txm ? `${txm.length} tracked` : "");
 
   console.log("\n--- register CrossPermit on every configured chain ---");
-  // Every chain the relayer serves, so a chain with no deployment is reported rather than skipped
-  // silently — a missing audit trail nobody was told about is worse than none at all.
-  const served = (process.env.RELAYER_CHAINS ?? "11155111,84532,11155420").split(",").map(Number);
+  // The same step the deploy runs, called rather than reimplemented: a smoke test that registers
+  // its own way proves the smoke test works, not the deploy.
+  const served = servedChains();
   const treasury = Treasury.fromEnv(process.env, served);
   for (const line of await treasury.describe(served)) console.log(line);
 
-  for (const id of treasury.chains()) {
-    const reg = await treasury.registerCrossPermit({ chainId: id, address: crossPermit, abi, bin, startingBlock: "latest" });
-    check(reg.address === crossPermit, `chain ${id}: CrossPermit registered as "${reg.label}"`);
-    const linked = await treasury.get(id)!.listAddresses();
-    check(
-      linked.some((a) => a.address?.toLowerCase() === crossPermit.toLowerCase()),
-      `chain ${id}: address alias resolves to the deployed CrossPermit`,
-    );
+  for (const reg of await registerCrossPermit(treasury)) {
+    check(reg.address === crossPermit, `chain ${reg.chainId}: CrossPermit registered as "${reg.label}"`);
+    check(reg.linked, `chain ${reg.chainId}: address alias resolves to the deployed CrossPermit`);
   }
 
   console.log("\n--- treasury view ---");

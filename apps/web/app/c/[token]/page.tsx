@@ -40,7 +40,7 @@ const EXPIRIES = [
   { hours: 8760, label: "1 year" },
 ];
 
-const READS_PER_HOLDING = 5;
+const READS_PER_HOLDING = 6;
 
 /**
  * Token marks, by the symbol the token's own contract reports.
@@ -53,6 +53,17 @@ const READS_PER_HOLDING = 5;
 const TOKEN_LOGOS: Record<string, string> = {
   USDC: "/logos/usdc.png",
 };
+
+const ZERO = "0x0000000000000000000000000000000000000000" as Address;
+
+/**
+ * The second spender this signature grants, per chain.
+ *
+ * A mandate names two: the Universal Router, which is how it trades, and the LiquidityDesk, which
+ * is how it provides liquidity. The zero address stands in where a chain has no desk, so the reads
+ * below stay one fixed-length batch per holding — an allowance to nobody reads back as nothing.
+ */
+const deskOn = (chainId: number): Address => poolOn(chainId)?.liquidityDesk ?? ZERO;
 
 const short = (a: string, n = 6) => (a.length > 2 * n ? `${a.slice(0, n)}…${a.slice(-4)}` : a);
 const group = (n: string) => {
@@ -123,15 +134,18 @@ function Grant({ client, token, onLinked }: { client: ClientMandate; token: stri
   const [linkError, setLinkError] = useState<string | null>(null);
   const { status } = useIntentStream(intentId);
 
-  // Five reads per holding, batched per chain: balance, the allowance already open to the router,
-  // symbol, name, decimals. `allowance` matters because a permit entry with an expiry is an
-  // INCREASE — the amount alone understates what the client ends up granting whenever anything is
-  // already outstanding. Name and symbol are read rather than written into the config, because a
-  // label typed into this app is the one thing on the screen the chain cannot contradict.
+  // Six reads per holding, batched per chain: balance, the allowance already open to EACH of the
+  // two spenders this signature grants, symbol, name, decimals. Both allowances, because the
+  // signature below grants both — reading only the router understated by exactly the half of the
+  // grant the client could not see. `allowance` matters at all because a permit entry with an
+  // expiry is an INCREASE: the amount alone understates what the client ends up granting whenever
+  // anything is already outstanding. Name and symbol are read rather than written into the config,
+  // because a label typed into this app is the one thing on the screen the chain cannot contradict.
   const reads = useReadContracts({
     contracts: HOLDINGS.flatMap((h) => [
       { address: h.token, abi: tokenAbi, functionName: "balanceOf", args: [address!], chainId: h.chain.id },
       { address: CROSS_PERMIT, abi: crossPermitAbi, functionName: "allowance", args: [address!, h.token, h.chain.router], chainId: h.chain.id },
+      { address: CROSS_PERMIT, abi: crossPermitAbi, functionName: "allowance", args: [address!, h.token, deskOn(h.chain.id)], chainId: h.chain.id },
       { address: h.token, abi: tokenAbi, functionName: "symbol", chainId: h.chain.id },
       { address: h.token, abi: tokenAbi, functionName: "name", chainId: h.chain.id },
       { address: h.token, abi: tokenAbi, functionName: "decimals", chainId: h.chain.id },
@@ -144,15 +158,25 @@ function Grant({ client, token, onLinked }: { client: ClientMandate; token: stri
       const r = reads.data?.[i * READS_PER_HOLDING + k];
       return r?.status === "success" ? r.result : undefined;
     };
-    const decimals = typeof at(4) === "number" ? (at(4) as number) : 6;
+    const decimals = typeof at(5) === "number" ? (at(5) as number) : 6;
     const fmt = (v: unknown) => (typeof v === "bigint" ? formatUnits(v, decimals) : null);
+    const allowance = (v: unknown) => fmt((v as readonly [bigint, number, number] | undefined)?.[0]);
     return {
       decimals,
       balance: fmt(at(0)),
-      open: fmt((at(1) as readonly [bigint, number, number] | undefined)?.[0]),
-      symbol: (at(2) as string | undefined) ?? null,
-      name: (at(3) as string | undefined) ?? null,
+      openRouter: allowance(at(1)),
+      openDesk: allowance(at(2)),
+      symbol: (at(3) as string | undefined) ?? null,
+      name: (at(4) as string | undefined) ?? null,
     };
+  };
+
+  /** What is already outstanding, per spender. A single figure would hide whichever it left out. */
+  const openLine = (d: ReturnType<typeof info>) => {
+    const parts: string[] = [];
+    if (d.openRouter && d.openRouter !== "0") parts.push(`${group(d.openRouter)} to the router`);
+    if (d.openDesk && d.openDesk !== "0") parts.push(`${group(d.openDesk)} to the LP desk`);
+    return parts.length ? `${parts.join(" · ")} open` : "none open";
   };
 
   const chosen = HOLDINGS.map((h, i) => ({ ...h, i })).filter((h) => picked.has(h.key));
@@ -186,8 +210,8 @@ function Grant({ client, token, onLinked }: { client: ClientMandate; token: stri
         // was what forced the client to sign a second time before the desk could allocate — which
         // is the thing this product exists to remove.
         leg.permits.push(approveEntry(h.token, h.chain.router, units, expiry));
-        const desk = poolOn(h.chain.id)?.liquidityDesk;
-        if (desk) leg.permits.push(approveEntry(h.token, desk, units, expiry));
+        const desk = deskOn(h.chain.id);
+        if (desk !== ZERO) leg.permits.push(approveEntry(h.token, desk, units, expiry));
         byChain.set(h.chain.id, leg);
       }
       return prepareIntent({
@@ -386,7 +410,7 @@ function Grant({ client, token, onLinked }: { client: ClientMandate; token: stri
                     </span>
                     <span className="bal">
                       <span className="t">{d.balance === null ? "—" : group(d.balance)}</span>
-                      <span className="s">{d.open && d.open !== "0" ? `${group(d.open)} open` : "none open"}</span>
+                      <span className="s">{openLine(d)}</span>
                     </span>
                   </button>
                 </li>

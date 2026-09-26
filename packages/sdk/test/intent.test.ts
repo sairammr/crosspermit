@@ -203,7 +203,7 @@ describe("the signed ordering timestamp", () => {
     const now = 1_800_000_000;
     const { intent } = prepareIntent({
       crossPermit: XP,
-      owner: OWNER,
+      owner: OWNER.address,
       now,
       chains: [{ chainId: 1, permits: [approveEntry(USDC, ROUTER, 1n, now + 3600)] }],
     });
@@ -222,13 +222,13 @@ describe("the signed ordering timestamp", () => {
   test("a constant offset keeps two intents in the order they were signed", () => {
     const one = prepareIntent({
       crossPermit: XP,
-      owner: OWNER,
+      owner: OWNER.address,
       now: 1_800_000_000,
       chains: [{ chainId: 1, permits: [approveEntry(USDC, ROUTER, 1n, 1_800_003_600)] }],
     }).intent;
     const two = prepareIntent({
       crossPermit: XP,
-      owner: OWNER,
+      owner: OWNER.address,
       now: 1_800_000_060,
       chains: [{ chainId: 1, permits: [approveEntry(USDC, ROUTER, 1n, 1_800_003_660)] }],
     }).intent;

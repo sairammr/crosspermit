@@ -50,6 +50,13 @@ contract ERC7702Approver is IERC7702Approver {
         address[] calldata erc721Tokens,
         address[] calldata erc1155Tokens
     ) external {
+        // Under ERC-7702 this code runs with the EOA as `address(this)`, so the EOA calling itself
+        // is the only shape that means anything. Called on the deployed copy it would hand out the
+        // deployment's own approvals to whoever asked, which is nobody's intent.
+        if (msg.sender != address(this)) {
+            revert NotSelf();
+        }
+
         // Check that at least one token was provided
         if (erc20Tokens.length + erc721Tokens.length + erc1155Tokens.length == 0) {
             revert NoTokensProvided();

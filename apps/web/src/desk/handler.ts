@@ -10,6 +10,7 @@
 //   POST /v1/auth/signout
 //   PUT  /v1/desks/:chainId        register this manager's LiquidityDesk
 //   GET  /v1/clients               MY clients only
+//   GET  /v1/intents               the fan-out list — a session, like the book above
 //   POST /v1/clients               create one, recorded as mine
 //   GET  /v1/clients/:token        mine, or I am the owner who signed it
 //   POST /v1/clients/:token/revoke mine only
@@ -19,7 +20,7 @@
 //   POST /v1/clients/:token/link   passthrough — the intent signature is the auth
 //   POST /v1/intents               passthrough — same reason
 //   GET  /v1/pools[?owner=0x…]     the venues, read off each chain's PoolManager
-//   /v1/intents/*, /v1/quota/*     passthrough — open upstream, including the SSE stream
+//   /v1/intents/:id[/sse], /v1/quota/*    passthrough with the key, including the SSE stream
 //   GET  /v1/chains, /healthz      passthrough
 //
 // A plain `Request in, Response out` function rather than a route file, for two reasons: the route
@@ -29,7 +30,7 @@ import { isAddress } from "viem";
 
 import { AuthError, clearCookie, issueNonce, session, setCookie, signIn, signOut, upsertManager } from "./auth";
 import { routers } from "./config";
-import { all, get, key, run } from "./db";
+import { all, configError as storeError, get, key, run } from "./db";
 import { pools } from "./pools";
 import { type Bound, canReadMandate, canReadOwner, scopeCheck } from "./scope";
 import { type Mandate } from "./upstream";
@@ -71,6 +72,13 @@ export async function handle(req: Request): Promise<Response> {
   // Mounted at /api/desk by the app, so the client needs no second origin and the session cookie
   // stays same-origin. Everything below still reasons in the relayer's own `/v1` terms.
   const path = url.pathname.replace(/^\/api\/desk/, "/v1");
+
+  // Before anything is read. A deployed host with no relayer and no store does not degrade into a
+  // quiet dashboard — every read fails on its own, each one looking like an empty book, and the
+  // screen is fully populated and entirely wrong. One refusal, naming the variable, instead.
+  const misconfigured = upstream.configError ?? storeError;
+  if (misconfigured) return json({ error: misconfigured, code: "not_configured" }, 503);
+
   const cookie = req.headers.get("cookie");
   const me = await session(cookie);
 
@@ -229,9 +237,18 @@ export async function handle(req: Request): Promise<Response> {
     }
   }
 
-  // Intent status, its live stream, the recent list, a quota read. Open upstream and streamed
-  // through untouched, so a dashboard behind this layer needs no second origin to talk to.
-  if (req.method === "GET" && (path.startsWith("/v1/intents") || path.startsWith("/v1/quota/"))) {
+  // One intent's status, its live stream, a quota read. Open upstream and streamed through
+  // untouched, so a dashboard behind this layer needs no second origin to talk to.
+  //
+  // Matched exactly rather than by prefix: `/v1/intents` with nothing after it is the COLLECTION,
+  // which is every manager's fan-out, and a prefix match proxied it to anyone who asked. It is
+  // gated below for the same reason `/v1/clients` is.
+  if (req.method === "GET" && (/^\/v1\/intents\/[^/]+(\/sse)?$/.test(path) || path.startsWith("/v1/quota/"))) {
+    return upstream.proxy(path + url.search);
+  }
+
+  if (path === "/v1/intents" && req.method === "GET") {
+    if (!me) return deny("no_session", "sign in with your wallet first", 401);
     return upstream.proxy(path + url.search);
   }
 

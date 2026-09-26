@@ -19,14 +19,34 @@ const TOKEN = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48" as Address;
 const ROUTER = "0xd72f799E1af27E0d95aB4B9658A277A7811Fbcd0" as Address;
 
 /** Counts what the engine actually did, so a test can assert "submitted once", not "looked fine". */
-type FakeChain = { simulations: number; sends: Hex[]; failSimulation?: string; failSend?: string };
+type FakeChain = {
+  simulations: number;
+  sends: Hex[];
+  failSimulation?: string;
+  failSend?: string;
+  /** Make the receipt watch throw, which is the broadcast-but-unwatched case. */
+  failReceipt?: string;
+  /** A receipt shaped like a real one: the engine multiplies these two to charge gas. */
+  receipt: { status: "success" | "reverted"; gasUsed: bigint; effectiveGasPrice: bigint };
+  /** How many confirmations the engine asked to wait for. */
+  confirmations?: number;
+};
 
 function harness(chainIds: number[], opts: { crossPermit?: Address } = {}) {
   const fakes = new Map<number, FakeChain>();
   const chains = new Map<number, ChainRuntime>();
+  /** Every gas charge the engine made, so the receipt -> budget path is asserted, not assumed. */
+  const charged: { owner: Address; wei: bigint }[] = [];
 
   for (const chainId of chainIds) {
-    const fake: FakeChain = { simulations: 0, sends: [] };
+    const fake: FakeChain = {
+      simulations: 0,
+      sends: [],
+      // 21000 gas at 1 gwei is not the real cost of a permit, but it is a real SHAPE: two bigints
+      // that multiply to a nonzero charge. The old `{ status: "success" }` made `gasUsed *
+      // effectiveGasPrice` run on undefined and the whole budget loop go untested.
+      receipt: { status: "success", gasUsed: 21_000n, effectiveGasPrice: 1_000_000_000n },
+    };
     fakes.set(chainId, fake);
 
     const signer: Signer = {
@@ -46,8 +66,10 @@ function harness(chainIds: number[], opts: { crossPermit?: Address } = {}) {
         if (fake.failSimulation) throw new Error(fake.failSimulation);
         return { data: "0x" as Hex };
       },
-      async waitForTransactionReceipt() {
-        return { status: "success" as const };
+      async waitForTransactionReceipt({ confirmations }: { confirmations?: number }) {
+        fake.confirmations = confirmations;
+        if (fake.failReceipt) throw new Error(fake.failReceipt);
+        return fake.receipt;
       },
       async verifyTypedData() {
         return false; // contract accounts are not part of these cases
@@ -68,7 +90,13 @@ function harness(chainIds: number[], opts: { crossPermit?: Address } = {}) {
     dbPath,
     minSecondsLeft: 60,
   };
-  return { relayer: new Relayer(config, store), store, fakes, dbPath };
+  return {
+    relayer: new Relayer(config, store, (owner, wei) => charged.push({ owner, wei })),
+    store,
+    fakes,
+    charged,
+    dbPath,
+  };
 }
 
 const dbs: string[] = [];
@@ -220,6 +248,84 @@ describe("refusing to spend gas", () => {
 
     expect(await codeOf(relayer.submit(forged))).toBe("bad_signature");
     expect(fakes.get(84532)!.sends).toHaveLength(0);
+  });
+});
+
+describe("the receipt", () => {
+  test("charges the owner exactly gasUsed * effectiveGasPrice, per leg", async () => {
+    const { relayer, fakes, charged, dbPath } = harness([84532, 11155111]);
+    dbs.push(dbPath);
+    fakes.get(84532)!.receipt = { status: "success", gasUsed: 100_000n, effectiveGasPrice: 3n };
+    fakes.get(11155111)!.receipt = { status: "success", gasUsed: 50_000n, effectiveGasPrice: 7n };
+
+    await relayer.submit(await signedIntent([84532, 11155111]), { wait: true });
+
+    // The budget in `Admission` is spent from exactly this number, so an arithmetic slip here is a
+    // relayer that either never runs out of gas or runs out immediately.
+    expect(charged.map((c) => c.wei).sort()).toEqual([300_000n, 350_000n]);
+    expect(charged.every((c) => c.owner === OWNER.address)).toBe(true);
+  });
+
+  test("a reverted transaction is still charged, and the leg fails", async () => {
+    const { relayer, fakes, charged, dbPath } = harness([84532]);
+    dbs.push(dbPath);
+    fakes.get(84532)!.receipt = { status: "reverted", gasUsed: 21_000n, effectiveGasPrice: 2n };
+
+    const res = await relayer.submit(await signedIntent([84532]), { wait: true });
+    // Otherwise a caller could grind the relayer's balance down with transactions that revert.
+    expect(charged).toEqual([{ owner: OWNER.address, wei: 42_000n }]);
+    expect(relayer.status(res.id)!.legs[0]!.status).toBe("failed");
+  });
+
+  test("waits for two confirmations, so a reorged-out block is not recorded as confirmed", async () => {
+    const { relayer, fakes, dbPath } = harness([84532]);
+    dbs.push(dbPath);
+    await relayer.submit(await signedIntent([84532]), { wait: true });
+    expect(fakes.get(84532)!.confirmations).toBe(2);
+  });
+
+  test("a receipt that never arrives leaves the leg submitted, strandable, and announced", async () => {
+    const { relayer, store, fakes, charged, dbPath } = harness([84532]);
+    dbs.push(dbPath);
+    fakes.get(84532)!.failReceipt = "timed out waiting for receipt";
+
+    const seen: string[] = [];
+    const id = (await relayer.submit(await signedIntent([84532]), { wait: false })).id;
+    relayer.on(id, (e) => seen.push(`${e.status}:${e.error ?? ""}`));
+    for (let i = 0; i < 50 && relayer.status(id)!.legs[0]!.status === "submitting"; i++) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
+
+    const leg = relayer.status(id)!.legs[0]!;
+    // NOT "failed": the transaction is in the mempool and may well be landing. Resubmitting it is
+    // how one signed allowance becomes two.
+    expect(leg.status).toBe("submitted");
+    expect(leg.txHash).toBeTruthy();
+    expect(charged).toHaveLength(0);
+    // A subscriber must hear about it, or the SSE stream waits on a watcher that already gave up.
+    expect(seen.some((e) => e.startsWith("submitted:broadcast, but the receipt was not seen"))).toBe(true);
+    // And a sweeper has to be able to find it again, with the timestamp of the broadcast itself.
+    const stranded = store.stranded(-1);
+    expect(stranded.map((l) => l.chainId)).toEqual([84532]);
+    expect(stranded[0]!.broadcastAt).toBeGreaterThan(0);
+  });
+});
+
+describe("a broadcast that never happens", () => {
+  test("is recorded as failed, is charged nothing, and is retryable", async () => {
+    const { relayer, fakes, charged, dbPath } = harness([84532]);
+    dbs.push(dbPath);
+    fakes.get(84532)!.failSend = "insufficient funds for gas";
+
+    const res = await relayer.submit(await signedIntent([84532]), { wait: true });
+    const leg = relayer.status(res.id)!.legs[0]!;
+    // "failed" is the honest word here and the useful one: there is no hash, so nothing is in
+    // flight, and `claim` will hand the leg back out rather than leaving it stuck.
+    expect(leg.status).toBe("failed");
+    expect(leg.txHash).toBeNull();
+    expect(leg.error).toContain("insufficient funds");
+    expect(charged).toHaveLength(0);
+    expect(fakes.get(84532)!.simulations).toBe(1);
   });
 });
 

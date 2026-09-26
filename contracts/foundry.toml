@@ -28,6 +28,6 @@ wrap_comments = true
 [rpc_endpoints]
 sepolia = "${RPC_ETH_SEPOLIA}"
 base_sepolia = "${RPC_BASE_SEPOLIA}"
-unichain_sepolia = "${RPC_UNI_SEPOLIA}"
+op_sepolia = "${RPC_OP_SEPOLIA}"
 mainnet = "${RPC_ETH_MAINNET}"
 avalanche = "${RPC_AVALANCHE}"

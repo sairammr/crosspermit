@@ -5,9 +5,13 @@
   "workspaces": ["packages/*", "apps/*"],
   "scripts": {
     "typecheck": "bun run --filter '*' typecheck",
-    "test": "bun run --filter '*' test",
+    "test": "script/test.sh",
     "build": "cd contracts && forge build",
     "test:contracts": "cd contracts && forge test"
+  },
+  "engines": {
+    "bun": ">=1.3.11",
+    "node": ">=22.14.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

@@ -1,5 +1,5 @@
-/* The per-client dashboard. Everything structural comes from desk.css; this is only the
-   recommendation block, which desk.css has no shape for. */
+/* The per-client dashboard. Everything structural comes from desk.css; this is the shapes desk.css
+   has none for: the view keys, the positions blotter, the charts, and the venue cards. */
 
 .client-page .grp {
   margin: 26px 0 10px;
@@ -11,107 +11,56 @@
   padding-top: 14px;
 }
 
-.client-page .rec {
-  border: 1px solid var(--line);
-  border-left: 3px solid var(--idle);
-  border-radius: var(--r-sm);
-  background: var(--panel);
-  padding: 14px 16px;
-  margin: 10px 0;
-}
-
-/* Routable is the only state that gets the signal colour. A designed strategy that looked live
-   would be the exact lie this screen exists to avoid. */
-.client-page .rec.on {
-  border-left-color: var(--accent);
-}
-
-.client-page .rec.off {
-  background: transparent;
-}
-
-.client-page .rec-head {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-bottom: 6px;
-}
-
-.client-page .rec-head h4 {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 600;
-}
-
-.client-page .kindtag {
-  color: var(--ink-4);
-  border: 1px solid var(--line);
-  border-radius: var(--r-xs);
-  padding: 0 5px;
-}
-
-.client-page .score {
-  margin-left: auto;
-  color: var(--ink-4);
-  font-variant-numeric: tabular-nums;
-}
-
-.client-page .rec > p {
-  margin: 0 0 8px;
-  font-size: 14px;
-  color: var(--ink-2);
-}
-
-.client-page .rec .note {
-  margin: 4px 0 0;
-}
-
-.client-page .rec .note.blocked {
-  color: var(--ink-3);
-}
-
-.client-page .rec .kv-list {
-  margin: 8px 0;
-}
-
-/* Data on the left, everything that needs width on the right. The rail sticks because the
-   figures are what you check while scrolling the venue and the history. */
+/* Data on the left, the mandate and the venue on the right. The side column sticks because the
+   figures and the one action are what you check while reading the book down.
+   Three quarters dashboard, one quarter venue — but never narrower than a pool card can be read in,
+   or the venue's own figures wrap into a column of two-character cells. */
 .client-page .client-grid {
   display: grid;
   gap: 16px;
-  grid-template-columns: minmax(0, 340px) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 2.6fr) minmax(320px, 1fr);
   align-items: start;
 }
 
-.client-page .rail {
+/* Deliberately NOT called `.rail`: rail.css owns that name for the nav frame, and that frame is
+   `pointer-events: none` so the page runs under it. An aside sharing the name inherited it and went
+   dead — no scrolling, no clicking the venue's own keys. Keep this name distinct.
+
+   It scrolls itself rather than the page because it is taller than the viewport and stuck; dvh so a
+   mobile URL bar cannot cut the last card off, and a stable gutter so the scrollbar does not appear
+   over the bay's edge highlight and read as a seam. */
+.client-page .side {
   position: sticky;
   top: 12px;
   display: flex;
   flex-direction: column;
   gap: 16px;
-  max-height: calc(100vh - 24px);
+  min-height: 0;
+  max-height: calc(100dvh - 24px);
   overflow-y: auto;
+  overscroll-behavior-y: contain;
   scrollbar-width: thin;
+  scrollbar-gutter: stable;
+  padding-right: 2px;
 }
 
-/* One column below a laptop: a 340px rail beside a table is two cramped columns, not a layout. */
-@media (max-width: 1080px) {
+/* One column below a laptop: a quarter-width rail beside a chart is two cramped columns. */
+@media (max-width: 1180px) {
   .client-page .client-grid {
     grid-template-columns: minmax(0, 1fr);
   }
-  .client-page .rail {
+  .client-page .side {
     position: static;
     max-height: none;
     overflow: visible;
   }
 }
 
-.client-page .rail .kv-list {
+.client-page .side .kv-list {
   margin: 10px 0 0;
 }
 
-.client-page .rail .kv dd {
+.client-page .side .kv dd {
   font-variant-numeric: tabular-nums;
 }
 
@@ -159,18 +108,439 @@
   margin-top: 5px;
 }
 
-.client-page .pool {
-  border: 1px solid var(--line);
-  border-radius: var(--r-sm);
-  background: var(--panel);
-  padding: 14px 16px;
+/* ---- pool cards ----
+   A venue reads the way Uniswap's own list reads it: the pair first, as two marks and a name,
+   then the figures in columns. Everything below the head is the one thing a mandate can do here. */
+
+.client-page .pool-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   margin: 12px 0;
 }
 
-.client-page .pool .grid {
-  margin: 8px 0;
+.client-page .pool-card {
+  border: 0;
+  background: var(--bay-face);
+  box-shadow: var(--sh-bay);
+  border-radius: var(--r-bay);
+  padding: 16px 18px;
 }
 
-.client-page .pool .field input {
-  width: 140px;
+.client-page .pc-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.client-page .pc-name {
+  min-width: 150px;
+}
+.client-page .pc-name h4 {
+  margin: 0;
+  font-size: 17px;
+  letter-spacing: -0.015em;
+  font-weight: 650;
+}
+.client-page .pc-name .micro {
+  display: block;
+  margin-top: 2px;
+}
+
+/* The pair: two marks, the second tucked under the first, chain badged on the corner. */
+.client-page .pair-mark {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  padding-right: 8px;
+}
+.client-page .pair-mark i {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--panel);
+  box-shadow: inset 0 0 0 1px var(--panel-edge);
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.client-page .pair-mark .m1 {
+  margin-left: -10px;
+}
+.client-page .pair-mark img {
+  display: block;
+  object-fit: cover;
+}
+.client-page .pair-mark .chain {
+  position: absolute;
+  right: 0;
+  bottom: -2px;
+  width: 16px;
+  height: 16px;
+  box-shadow: inset 0 0 0 1px var(--panel-edge), 0 1px 2px rgba(40, 34, 28, 0.18);
+  background: var(--bg);
+}
+
+/* The figures. Tabular, so two cards stacked read down the column. */
+.client-page .pc-figs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(96px, 1fr));
+  gap: 14px;
+  margin: 0 0 0 auto;
+  flex: 1 1 420px;
+}
+.client-page .pc-figs > div {
+  min-width: 0;
+}
+.client-page .pc-figs dt {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+.client-page .pc-figs dd {
+  margin: 2px 0 0;
+  font-family: var(--mono);
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+}
+.client-page .pc-figs .micro {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.client-page .pc-body {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-soft);
+  box-shadow: inset 0 1px 0 #ffffff;
+}
+.client-page .pc-act {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.client-page .pc-act .field input {
+  width: 130px;
+}
+.client-page .pc-quote {
+  margin: 8px 0 0;
+}
+.client-page .pc-kv {
+  margin: 10px 0 0;
+}
+
+/* The repo's own pools: present, reachable, and not the first thing the screen shows. */
+.client-page .pool-seeded > summary {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  cursor: pointer;
+  padding: 8px 0;
+}
+.client-page .pool-seeded[open] > summary {
+  margin-bottom: 4px;
+}
+
+@media (max-width: 720px) {
+  .client-page .pc-figs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    flex-basis: 100%;
+  }
+}
+
+/* ---- the screen, without tables ----
+   A grant is a proportion (what still stands, of what was signed), a chain is a badge, and a
+   history is a sequence. All three read faster drawn than spelled out in a seven-column row. */
+
+.client-page .chain-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: var(--track-label);
+  color: var(--ink-3);
+}
+.client-page .chain-tag img {
+  display: block;
+  border-radius: 50%;
+}
+
+.client-page .meter {
+  display: block;
+  height: 6px;
+  margin: 8px 0 6px;
+  border-radius: 3px;
+  background: var(--socket);
+  box-shadow: var(--sh-sunk);
+  overflow: hidden;
+}
+.client-page .meter i {
+  display: block;
+  height: 100%;
+  background: var(--mark-grey);
+}
+.client-page .meter.m-ok i {
+  background: var(--ok);
+}
+.client-page .meter.m-warn i {
+  background: var(--accent);
+}
+.client-page .meter.m-bad i {
+  background: var(--alert);
+}
+
+/* One grant, one card: who, on what, and how much of it is left. */
+.client-page .grant-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+  margin: 12px 0;
+}
+.client-page .grant {
+  border-radius: var(--r-inset);
+  padding: 12px 14px;
+  background: var(--socket);
+  box-shadow: var(--sh-sunk);
+}
+.client-page .grant.odd {
+  background: var(--alert-wash);
+}
+.client-page .grant header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+.client-page .grant header strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* A chain, or an asset on one chain, as a tile. */
+.client-page .chain-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px;
+  margin: 12px 0;
+}
+.client-page .chain-tile {
+  border-radius: var(--r-inset);
+  padding: 12px 14px;
+  background: var(--socket);
+  box-shadow: var(--sh-sunk);
+}
+.client-page .chain-tile header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.client-page .chain-tile .big {
+  font-size: 19px;
+  font-variant-numeric: tabular-nums;
+  word-break: break-all;
+}
+.client-page .chain-tile .kv-list {
+  margin: 0;
+}
+.client-page .chain-tile .kv {
+  font-size: 11px;
+}
+
+/* History: a sequence, ruled down the left. */
+.client-page .timeline {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0 0 0 14px;
+  border-left: 1px solid var(--line);
+}
+.client-page .timeline .ev {
+  position: relative;
+  display: grid;
+  grid-template-columns: 96px 110px 78px minmax(0, 1fr) minmax(0, 1.2fr) 70px;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line-soft);
+  box-shadow: inset 0 -2px 0 -1px #ffffff;
+}
+.client-page .timeline .ev:last-child {
+  border-bottom: 0;
+  box-shadow: none;
+}
+/* The dot on the rule: the event itself, coloured by what it did. */
+.client-page .timeline .ev::before {
+  content: "";
+  position: absolute;
+  left: -18px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--mark-grey);
+}
+.client-page .timeline .ev.granted::before {
+  background: var(--ok);
+}
+.client-page .timeline .ev.locked::before {
+  background: var(--alert);
+}
+.client-page .timeline .ev.cancelled::before,
+.client-page .timeline .ev.cleared::before {
+  background: var(--accent);
+}
+.client-page .timeline .amt {
+  font-variant-numeric: tabular-nums;
+}
+.client-page .timeline .who {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .client-page .timeline .ev {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+
+/* ---- the pool cards, at a quarter of the screen ----
+   The figures cannot sit beside the pair at this width, so they go under it, two up. */
+.client-page .side .pc-head {
+  gap: 10px;
+}
+.client-page .side .pc-figs {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  flex-basis: 100%;
+  margin-left: 0;
+  gap: 10px;
+}
+.client-page .side .pc-figs dd {
+  font-size: 15px;
+}
+.client-page .side .pc-act .field input {
+  width: 100%;
+}
+.client-page .side .pc-act .field {
+  flex: 1 1 100%;
+}
+.client-page .side .panel {
+  padding: 18px;
+}
+
+/* ---- the view keys ----
+   Three readings of one mandate, as a key bank: console keys, same material as the rail above, so
+   switching view feels like the same hardware as navigating. The selected key is graphite — the
+   kit's second face — and never signal, because signal is reserved for the one thing on the screen
+   that moves money, which lives in the venue panel. */
+
+.client-page .subtabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0 0 16px;
+}
+
+.client-page .subtabs .btn.on {
+  --top: #4a4741;
+  --face: #35322d;
+  --foot: #2a2724;
+  --wall: #1a1815;
+  --fg: #f3f1ed;
+}
+.client-page .subtabs .btn.on .cap {
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    inset 0 -2px 2px rgba(0, 0, 0, 0.3),
+    0 1px 0 rgba(0, 0, 0, 0.2);
+}
+
+/* A count on a key is a reading, not a label: it takes the socket treatment at chip scale. */
+.client-page .subtabs .count {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 1px 5px;
+  border-radius: var(--r-xs);
+  background: rgba(0, 0, 0, 0.09);
+}
+.client-page .subtabs .btn.on .count {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+/* ---- the book, in figures ----
+   A tile row opens the overview. Six sunk readings, not a wall: the manager's first question is how
+   much there is and how much of it is reachable, and that is answerable before any chart. */
+.client-page .book {
+  margin-bottom: 16px;
+}
+
+/* ---- the blotter ----
+   A position table, read the way a book is read: mono figures right-aligned so magnitudes line up
+   down the column, and an asset's own line above its venues so a three-chain exposure reads as one
+   exposure. */
+.client-page .blotter table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.client-page .blotter th,
+.client-page .blotter td {
+  padding: 9px 12px;
+  text-align: left;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.client-page .blotter thead th {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-4);
+  border-bottom: 1px solid var(--line);
+}
+
+.client-page .blotter .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The asset's own line. A heavier rule above it, because it is where one exposure ends and the next
+   begins — the only division in this table that is about the book rather than about a row. */
+.client-page .blotter .grp-row th,
+.client-page .blotter .grp-row td {
+  background: var(--panel-2);
+  border-top: 1px solid var(--line);
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.client-page .blotter tbody:first-of-type .grp-row th,
+.client-page .blotter tbody:first-of-type .grp-row td {
+  border-top: 0;
+}
+
+.client-page .blotter tbody tr:hover td {
+  background: var(--panel-2);
+}
+.client-page .blotter .grp-row:hover td {
+  background: var(--panel-2);
+}
+
+.client-page .blotter .meter {
+  min-width: 64px;
 }

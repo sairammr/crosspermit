@@ -178,16 +178,24 @@ business information even though it is not authority, so treat a link like a dra
 client who signs the *wrong* link grants a real allowance to whatever spender it named; the page
 renders every spender and amount in plain language first, which is the limit of what it can do.
 
-### T13 — The desk key in the browser bundle
+### T13 — The desk key in the browser bundle — closed
 
 **The attack.** `NEXT_PUBLIC_RELAYER_API_KEY` ships in the dashboard's client bundle. Anyone who can
 load the dashboard can create and withdraw mandates.
 
-**Answer.** Partial, and by construction: the dashboard *is* the desk, so it holds the desk's key.
-Creating a mandate still grants nothing, and withdrawing one closes no exposure.
+**Answer.** Closed. The dashboard ships no key, because there is nothing to ship: every call the
+browser makes goes to `/api/desk` on the app's own origin (`apps/web/src/config.ts:112-119`), and the
+desk layer behind that rewrite is the only thing that holds `RELAYER_API_KEY`. It scopes each answer
+to whoever signed in with a wallet signature and passes the deliberately-open endpoints through
+untouched. `apps/web/test/desk-e2e.test.ts` signs in, walks `/v1/clients`, `/v1/treasury/:owner`,
+`/v1/activity/:owner` and `/v1/pools`, asserts each returns real content, and scans every response
+header and body for the secret — so the test fails if a key ever starts leaking, which the earlier
+404-scanning version of it would not have.
 
-**Residual — open.** An exposed dashboard is an exposed desk key. Put authentication in front of the
-dashboard before hosting it, or leave the key blank and drive mandates from the API.
+**Residual.** The desk layer is now the only place the key lives, which makes the Next process the
+thing to protect. A compromised `apps/web` host is still a compromised desk — but creating a mandate
+grants nothing and withdrawing one closes no exposure, so the blast radius is the manager's book, not
+anyone's funds.
 
 ---
 
@@ -212,4 +220,8 @@ dashboard before hosting it, or leave the key blank and drive mandates from the 
 | Cloud Wallet path unexercised live | custody alternative is compile-checked only | needs an Azure Key Vault (Premium tier for HSM keys); not provisionable without that account |
 | No fuzz on share maths or merkle builder | T10's residual is larger than it should be | `contracts/test` |
 | Contracts unverified on explorers | a reader cannot check the source against the address | deployment |
-| Desk key ships in the dashboard bundle | anyone who can open the dashboard is the desk | `apps/web` |
+| ~~Desk key ships in the dashboard bundle~~ | **closed** — see T13; the browser holds no key | `apps/web` |
+| The deployed LiquidityDesks predate the `add` gate | all three carry the ungated bytecode, where any caller could settle an owner's whole allowance into a pool of their choosing | `deployments/liquidity-*.json` |
+| `liquidity-demo.ts` and the dashboard's **Add to the pool** button do not call `setOperator` | they will revert `NotAuthorised` against a gated desk | `packages/sdk/scripts`, `apps/web` |
+| A leg whose receipt was never read back is never re-checked | reported at boot with its hash and `broadcastAt`, never auto-retried, because it may still be in the mempool | `apps/relayer` |
+| No Solidity-side parity test for the cancel path | `CANCEL_CROSSPERMIT_TYPEHASH` and `hashNoncesToInvalidate` are pinned in TypeScript only (`packages/sdk/test/cancel.test.ts`) | `contracts/test` |

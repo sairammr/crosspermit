@@ -248,11 +248,22 @@ export function decodeSlot0(word: `0x${string}`): Slot0 {
     tick,
     protocolFee: Number((v >> 184n) & 0xffffffn),
     lpFee: Number((v >> 208n) & 0xffffffn),
-    // currency1 per currency0. Both test tokens are 6dp, so no decimal correction is needed here;
-    // a pool pairing different decimals would need one, and this is where it would go.
+    // currency1 per currency0, in each side's SMALLEST units — slot0 knows nothing about decimals.
+    // `priceOf` below turns it into a human price; a caller that prints this raw will print e8 on
+    // any pair whose two sides differ in decimals.
     price: (Number(sqrtPriceX96) / 2 ** 96) ** 2,
   };
 }
+
+/**
+ * `slot0.price` as a human would quote it: currency1 per whole currency0.
+ *
+ * The raw ratio is between smallest units, so a 6dp/18dp pair reads ~1e12 out. Every pool here was
+ * a 1:1 6dp mock when this was written and the correction was a no-op; two of them are now real
+ * WETH/USDC pairs, where it is the difference between a price and a phone number.
+ */
+export const priceOf = (pool: Pick<PoolInfo, "dec0" | "dec1">, price: number) =>
+  price * 10 ** (pool.dec0 - pool.dec1);
 
 export const sqrtAtTick = (tick: number) => Math.sqrt(1.0001 ** tick);
 

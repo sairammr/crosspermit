@@ -135,6 +135,20 @@ interface IAllowanceLedger {
     );
 
     /**
+     * @dev Emitted when a transfer consumes a finite allowance
+     * @param owner The token owner
+     * @param tokenKey The token key the allowance was drawn from
+     * @param spender The spender that consumed it
+     * @param amount The amount deducted
+     * @param remaining What is left of the allowance after the deduction
+     * @notice Without this, a ledger rebuilt from events only ever grows: Approval and Permit say
+     *         what was granted and Lockdown says what was revoked, but nothing said what was spent
+     */
+    event Spend(
+        address indexed owner, bytes32 indexed tokenKey, address indexed spender, uint160 amount, uint160 remaining
+    );
+
+    /**
      * @dev Emitted when an approval is revoked through lockdown()
      * @param owner The token owner
      * @param token The token contract address

@@ -3,14 +3,14 @@
 //   POST /v1/intents[?wait=1]   submit a signed intent; ?wait=1 returns once every leg settles
 //   GET  /v1/intents/:id        status snapshot
 //   GET  /v1/intents/:id/sse    live per-leg event stream
-//   GET  /v1/intents            recent intents
+//   GET  /v1/intents            recent intents (desk key)
 //   GET  /v1/chains             what this relayer serves, and with whose key
 //   GET  /v1/treasury/:owner    outstanding authority, decoded from the MultiBaas event ledger
 //   GET  /v1/activity/:owner    every recorded act of authority, from the same ledger, newest first
 //   POST /v1/clients            create a client mandate; returns the link token
 //   GET  /v1/clients            the desk's client list
 //   GET  /v1/clients/:token     one mandate, readable by whoever holds the link
-//   POST /v1/clients/:token/link   bind the owner who signed it
+//   POST /v1/clients/:token/link   bind the owner who signed it (desk key)
 //   POST /v1/clients/:token/revoke withdraw the invitation (NOT the allowance)
 //   GET  /healthz /readyz       liveness and readiness
 import { IntentError, fromWire } from "@crosspermit/sdk";
@@ -43,12 +43,15 @@ console.log(
     `${admissionConfig.maxGasWeiPerWindow} wei of gas per ${admissionConfig.windowMs}ms`,
 );
 
-// A leg stuck in `submitting` may have a transaction in the mempool whose hash we never saw.
-// Resubmitting it blind is how one signed allowance becomes two on chain, so report and stop.
+// A leg stuck in `submitting` may have a transaction in the mempool whose hash we never saw, and a
+// leg left in `submitted` has one whose receipt was never read back. Resubmitting either blind is
+// how one signed allowance becomes two on chain, so report the hash and stop.
 const stranded = store.stranded();
 if (stranded.length) {
-  console.warn(`  ${stranded.length} leg(s) stranded mid-submit by a previous run — NOT auto-retried:`);
-  for (const l of stranded) console.warn(`    ${l.intentId} chain ${l.chainId} (attempt ${l.attempts})`);
+  console.warn(`  ${stranded.length} leg(s) left mid-flight by a previous run — NOT auto-retried:`);
+  for (const l of stranded) {
+    console.warn(`    ${l.intentId} chain ${l.chainId} ${l.status} ${l.txHash ?? "(no hash seen)"} (attempt ${l.attempts})`);
+  }
 }
 
 const json = (body: unknown, status = 200) =>
@@ -107,14 +110,19 @@ const server = Bun.serve({
       const allowed = admission.checkOwner(intent.owner);
       if (!allowed.ok) return json({ error: allowed.message, code: allowed.code }, allowed.status);
 
+      // Reserve the slot here, before the await. Counting only once `submit` returned meant every
+      // request already in flight read the same zero, so N concurrent POSTs all passed a limit of
+      // one. The reservation is given back below for anything that did not become a new intent.
+      admission.recordIntent(intent.owner);
       try {
         const res = await relayer.submit(intent, { wait: url.searchParams.get("wait") === "1" });
         // Only a genuinely new intent counts against the window; a replay is answered from state.
-        if (res.accepted) admission.recordIntent(intent.owner);
+        if (!res.accepted) admission.releaseIntent(intent.owner);
         // 200 rather than 201 on a replay: nothing was created, and the caller gets the first run's
         // result so a retry is safe.
         return json({ intentId: res.id, accepted: res.accepted, ...relayer.status(res.id) }, res.accepted ? 201 : 200);
       } catch (e) {
+        admission.releaseIntent(intent.owner);
         if (e instanceof IntentError) return json({ error: e.message, code: e.code }, 400);
         console.error("submit failed", e);
         return json({ error: "internal error", code: "internal" }, 500);
@@ -201,6 +209,12 @@ const server = Bun.serve({
 
     const link = path.match(/^\/v1\/clients\/([0-9a-f]{32})\/link$/);
     if (link && req.method === "POST") {
+      // Behind the key like every other write. Holding the link lets a client READ an offer and
+      // sign their own permission; this call WRITES the desk's ledger — it overwrites the mandate's
+      // cap, expiry and chain list from the body — so it is the desk's own operation, made through
+      // whatever front end holds the key on the client's behalf.
+      const key = admission.checkKey(req.headers.get("authorization")?.replace(/^Bearer /i, "") ?? null);
+      if (!key.ok) return json({ error: key.message, code: key.code }, key.status);
       const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
       // The intent has to exist and has to be the one this owner signed. Without both checks a
       // mandate could be marked active by anyone who guessed a link and posted an address.
@@ -241,9 +255,17 @@ const server = Bun.serve({
     }
 
     const quota = path.match(/^\/v1\/quota\/(0x[0-9a-fA-F]{40})$/);
-    if (quota) return json({ owner: quota[1], remaining: admission.remaining(quota[1] as `0x${string}`) });
+    if (quota) {
+      const key = admission.checkKey(req.headers.get("authorization")?.replace(/^Bearer /i, "") ?? null);
+      if (!key.ok) return json({ error: key.message, code: key.code }, key.status);
+      return json({ owner: quota[1], remaining: admission.remaining(quota[1] as `0x${string}`) });
+    }
 
     if (path === "/v1/intents" && req.method === "GET") {
+      // `store.recent` is a bare SELECT *: every owner, salt and root this relayer has ever seen.
+      // That is the desk's own ledger, not a public index.
+      const key = admission.checkKey(req.headers.get("authorization")?.replace(/^Bearer /i, "") ?? null);
+      if (!key.ok) return json({ error: key.message, code: key.code }, key.status);
       return json({ intents: store.recent(Number(url.searchParams.get("limit") ?? 50)) });
     }
 

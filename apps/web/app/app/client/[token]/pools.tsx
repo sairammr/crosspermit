@@ -14,7 +14,7 @@
  * without ever being able to take it.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { type Address, formatUnits, parseUnits } from "viem";
 import { useAccount, useReadContracts, useSwitchChain, useWriteContract } from "wagmi";
 
@@ -24,6 +24,7 @@ import {
   POOL_CHAINS,
   amountsForLiquidity,
   poolId,
+  priceOf,
   rangeAt,
   decodeSlot0,
   liquidityDeskAbi,
@@ -41,13 +42,60 @@ const fmt = (n: number, dp = 4) => n.toLocaleString("en-US", { maximumFractionDi
 /** Headroom on the two caps passed to `add`. The price moves between this preview and the block. */
 const SLIPPAGE = 1.02;
 
+/** v4's "no hook" address, so the card can say so rather than printing twenty zeroes. */
+const ZERO_HOOK = "0x0000000000000000000000000000000000000000";
+
 export type PoolRow = {
+  /** The v4 pool id. Two pools can share a chain, so the chain is not an identity. */
+  id: `0x${string}`;
   chainId: number;
+  source: (typeof POOL_CHAINS)[number]["source"];
   /** Live depth, for the chart on the left. */
   liquidity: bigint;
+  /** Decimal-corrected: currency1 per whole currency0, not per smallest unit. */
   price: number;
   tick: number;
 };
+
+/** A token's mark. Only two are real here, and a symbol is a better label than a wrong logo. */
+const TOKEN_LOGO: Record<string, string> = {
+  USDC: "/logos/usdc.png",
+  WETH: "/logos/ethereum.png",
+};
+
+/** The chain's own mark, for the badge that sits on the pair. */
+const CHAIN_LOGO: Record<number, string> = {
+  84532: "/logos/base.png",
+  11155111: "/logos/ethereum.png",
+  11155420: "/logos/optimism.png",
+};
+
+const compact = (n: number) =>
+  n >= 1e12 ? `${(n / 1e12).toFixed(2)}T` : n >= 1e9 ? `${(n / 1e9).toFixed(2)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}k` : n.toFixed(2);
+
+/** The pair, as Uniswap draws it: two overlapping marks with the chain badged on the corner. */
+function PairMark({ pool }: { pool: (typeof POOL_CHAINS)[number] }) {
+  const mark = (sym: string, src?: string) =>
+    src ? (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={src} alt="" width={26} height={26} />
+    ) : (
+      <span className="mono">{sym.replace(/^m/, "").slice(0, 1)}</span>
+    );
+
+  return (
+    <span className="pair-mark" aria-hidden="true">
+      <i className="m0">{mark(pool.sym0, TOKEN_LOGO[pool.sym0])}</i>
+      <i className="m1">{mark(pool.sym1, TOKEN_LOGO[pool.sym1])}</i>
+      {CHAIN_LOGO[pool.chainId] && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <i className="chain">
+          <img src={CHAIN_LOGO[pool.chainId]!} alt="" width={14} height={14} />
+        </i>
+      )}
+    </span>
+  );
+}
 
 export function PoolsPanel({
   owner,
@@ -57,6 +105,12 @@ export function PoolsPanel({
   /** Live pool figures lifted to the page, so the charts and the panel read the same numbers. */
   onRows?: (rows: PoolRow[]) => void;
 }) {
+  // Uniswap's own pools lead, because they are the ones that prove anything: real PoolManagers,
+  // real depth, two chains. The repo's seeded pairs stay reachable — a demo client holds those
+  // mock tokens — but folded away, so the screen is not half test fixtures.
+  const live = POOL_CHAINS.filter((p) => p.source === "uniswap");
+  const seeded = POOL_CHAINS.filter((p) => p.source !== "uniswap");
+
   return (
     <div className="panel">
       <div className="sec-head">
@@ -64,26 +118,30 @@ export function PoolsPanel({
         <span className="label">04 / Venue</span>
       </div>
       <p className="sub">
-        Read from each PoolManager&rsquo;s own storage with <span className="mono">extsload</span> — v4 has no getters,
-        so the slot layout is computed the way <span className="mono">StateLibrary</span> computes it and checked
-        against a pool whose liquidity we seeded.
+        Uniswap&rsquo;s own v4 pools, read live from each PoolManager with <span className="mono">extsload</span>.
       </p>
-      {POOL_CHAINS.map((p) => (
-        // Keyed by the pool, not the chain: a chain can carry both Uniswap's own pool and one this
-        // repo seeded, and those are two different venues with two different positions.
-        <Pool key={poolId(p.key)} pool={p} owner={owner} onRow={(row) => onRows?.([row])} />
-      ))}
-      <p className="note">
-        Two of these are Uniswap&rsquo;s own pools — the canonical USDC/WETH pairs on Base and Ethereum Sepolia, found
-        by sweeping each PoolManager&rsquo;s <span className="mono">Initialize</span> log and reading depth back with{" "}
-        <span className="mono">extsload</span>. They are listed instead of anything deeper because{" "}
-        <span className="mono">LiquidityDesk</span> settles with <span className="mono">CrossPermit.transferFrom</span>{" "}
-        and therefore cannot pay a native-ETH side: Ethereum Sepolia&rsquo;s deepest v4 pools are ETH/USDC and are out
-        of reach by construction. Optimism Sepolia has no Uniswap v4 pool at all — no{" "}
-        <span className="mono">Initialize</span> event in 600k blocks — so the venue there, and the ones marked{" "}
-        <em>seeded</em>, are this repository&rsquo;s own <span className="mono">V4PoolSeeder</span> pools over mock
-        tokens. A client can only be allocated into a pool whose two tokens they actually hold.
-      </p>
+
+      <div className="pool-list">
+        {live.map((p) => (
+          // Keyed by the pool, not the chain: one chain can carry two venues.
+          <Pool key={poolId(p.key)} pool={p} owner={owner} onRow={(row) => onRows?.([row])} />
+        ))}
+      </div>
+
+      <details className="pool-seeded">
+        <summary>
+          <span className="cap">This repository&rsquo;s own pools</span>
+          <span className="micro">{seeded.length} seeded pairs over mock tokens · Optimism Sepolia has no v4 pool</span>
+        </summary>
+        <div className="pool-list">
+          {seeded.map((p) => (
+            <Pool key={poolId(p.key)} pool={p} owner={owner} onRow={(row) => onRows?.([row])} />
+          ))}
+        </div>
+        <p className="note">Mock tokens the demo client holds — adapter evidence, not market evidence.</p>
+      </details>
+
+      <p className="note">ERC20/ERC20 only — the desk settles by transferFrom and cannot pay a native-ETH side.</p>
     </div>
   );
 }
@@ -179,10 +237,21 @@ function Pool({
 
   if (slot0 && anchor === null) setAnchor(slot0.tick);
 
-  if (slot0 && depth !== undefined) {
-    // Lifted for the depth chart. Cheap enough to do on render; the parent dedupes by chain.
-    onRow?.({ chainId: pool.chainId, liquidity: depth, price: slot0.price, tick: slot0.tick });
-  }
+  // Lifted for the depth chart — from an effect, not from render. Calling the parent's setState
+  // while rendering re-renders every card, which lifts again: that loop is what "Maximum update
+  // depth exceeded" was. `onRow` is deliberately out of the deps; it is rebuilt every render.
+  useEffect(() => {
+    if (!slot0 || depth === undefined) return;
+    onRow?.({
+      id: poolId(pool.key),
+      chainId: pool.chainId,
+      source: pool.source,
+      liquidity: depth,
+      price: priceOf(pool, slot0.price),
+      tick: slot0.tick,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [depth, slot0?.price, slot0?.tick]);
 
   /** The desk's transaction. It can only ever move the client's tokens into this pool. */
   async function addLiquidity() {
@@ -257,170 +326,174 @@ function Pool({
       ? amountsForLiquidity(Number(position), Number(slot0.sqrtPriceX96) / 2 ** 96, ticks.tickLower, ticks.tickUpper)
       : null;
 
+  const priceNow = slot0 ? priceOf(pool, slot0.price) : null;
+  const depthNum = depth === undefined ? null : Number(depth);
+  const standing0 = liveAllowance(allowance0);
+  const standing1 = liveAllowance(allowance1);
+
   return (
-    <section className="pool" aria-labelledby={`pool-${pool.chainId}`}>
-      <div className="rec-head">
-        <h4 id={`pool-${pool.chainId}`}>{pool.name}</h4>
-        <span className="micro kindtag">
-          {pool.sym0}/{pool.sym1} · {pool.key.fee / 10_000}% · spacing {pool.key.tickSpacing}
-        </span>
-        <span className={`tag ${pool.source === "uniswap" ? "ok" : "awaiting"}`}>
-          {pool.source === "uniswap" ? "Uniswap's own pool" : "seeded by this repo"}
-        </span>
-        <span className={`tag ${slot0 ? "active" : "awaiting"}`}>{slot0 ? "pool live" : "unread"}</span>
-      </div>
+    <section className="pool-card" aria-labelledby={`pool-${poolId(pool.key).slice(0, 10)}`}>
+      {/* The row Uniswap's own pool list leads with: the pair, what kind of pool it is, then the
+          figures. Everything in it is read off this chain — there is no API behind this screen. */}
+      <header className="pc-head">
+        <PairMark pool={pool} />
+        <div className="pc-name">
+          <h4 id={`pool-${poolId(pool.key).slice(0, 10)}`}>
+            {pool.sym0}/{pool.sym1}
+          </h4>
+          <span className="micro">
+            v4 · {pool.key.fee / 10_000}% · {pool.key.hooks === ZERO_HOOK ? "No hook" : short(pool.key.hooks)} ·{" "}
+            {pool.name}
+          </span>
+        </div>
 
-      <div className="grid">
-        <div className="stat">
-          <div className="k">Price</div>
-          <div className="v">{slot0 ? fmt(slot0.price, 6) : "—"}</div>
-          <div className="n">currency1 per currency0 · tick {slot0?.tick ?? "—"}</div>
-        </div>
-        <div className="stat">
-          <div className="k">Depth</div>
-          <div className="v">{depth === undefined ? "—" : depth.toString()}</div>
-          <div className="n">in-range liquidity, L/1e6</div>
-        </div>
-        <div className="stat">
-          <div className="k">This client&rsquo;s position</div>
-          <div className="v">{position === undefined ? "—" : position === 0n ? "none" : position.toString()}</div>
-          <div className="n">
-            {positionAmounts
-              ? `≈ ${fmt(positionAmounts.amount0 / 10 ** pool.dec0, 4)} ${pool.sym0} + ${fmt(positionAmounts.amount1 / 10 ** pool.dec1, 4)} ${pool.sym1} at today's price`
-              : "salt = the client's address, so v4 holds it in their name"}
+        <dl className="pc-figs">
+          <div>
+            <dt>Price</dt>
+            <dd>{priceNow === null ? "—" : fmt(priceNow, 6)}</dd>
+            <span className="micro">
+              {pool.sym1} per {pool.sym0}
+            </span>
           </div>
+          <div>
+            <dt>Depth</dt>
+            <dd>{depthNum === null ? "—" : compact(depthNum)}</dd>
+            <span className="micro">in-range liquidity L</span>
+          </div>
+          <div>
+            <dt>Tick</dt>
+            <dd>{slot0?.tick ?? "—"}</dd>
+            <span className="micro">
+              offered {ticks.tickLower}…{ticks.tickUpper}
+            </span>
+          </div>
+          <div>
+            <dt>Position</dt>
+            <dd>{position === undefined ? "—" : position === 0n ? "none" : compact(Number(position))}</dd>
+            <span className="micro">
+              {positionAmounts
+                ? `≈ ${fmt(positionAmounts.amount0 / 10 ** pool.dec0, 4)} ${pool.sym0} + ${fmt(positionAmounts.amount1 / 10 ** pool.dec1, 4)} ${pool.sym1}`
+                : "held in the client's name"}
+            </span>
+          </div>
+        </dl>
+
+        <span className={`tag ${slot0 ? "ok" : "awaiting"}`}>{slot0 ? "live" : "unread"}</span>
+      </header>
+
+      <div className="pc-body">
+        <div className="pc-act">
+          <label className="field">
+            <span className="lbl">
+              Size per side ({pool.sym0} / {pool.sym1})
+            </span>
+            <input value={size} onChange={(e) => setSize(e.target.value)} inputMode="decimal" />
+          </label>
+
+          <button
+            type="button"
+            className="btn btn-sm btn-action"
+            disabled={!covered || busy !== null}
+            onClick={() => void addLiquidity()}
+            title={
+              covered
+                ? "pull under the client's mandate and mint the position to them"
+                : "the mandate does not cover this size on this chain"
+            }
+          >
+            <span className="cap">{busy === "add" ? "Adding…" : "Add liquidity"}</span>
+          </button>
+          <button
+            type="button"
+            className="btn btn-sm"
+            disabled={!position || busy !== null}
+            onClick={() => void withdraw("collect")}
+            title="sweep the fees this position has earned, to the client"
+          >
+            <span className="cap">{busy === "collect" ? "Collecting…" : "Collect fees"}</span>
+          </button>
+          <button
+            type="button"
+            className="btn btn-sm"
+            disabled={!position || busy !== null}
+            onClick={() => void withdraw("remove")}
+            title="withdraw the whole position, principal and fees, to the client"
+          >
+            <span className="cap">{busy === "remove" ? "Withdrawing…" : "Take it back"}</span>
+          </button>
+          <span className={`tag ${covered ? "ok" : "warn"}`}>{covered ? "covered by the mandate" : "mandate too small"}</span>
         </div>
-      </div>
 
-      <div className="table-wrap">
-        <table>
-          <tbody>
-            <tr>
-              <td>PoolManager</td>
-              <td>
-                <a href={`${pool.explorer}/address/${pool.poolManager}`} target="_blank" rel="noreferrer">
-                  {short(pool.poolManager)}
-                </a>
-              </td>
-              <td>currency0</td>
-              <td>
-                <a href={`${pool.explorer}/token/${currency0}`} target="_blank" rel="noreferrer">
-                  {short(currency0)}
-                </a>
-              </td>
-            </tr>
-            <tr>
-              <td>LiquidityDesk</td>
-              <td>
-                <a href={`${pool.explorer}/address/${desk}`} target="_blank" rel="noreferrer">
-                  {short(desk)}
-                </a>
-              </td>
-              <td>currency1</td>
-              <td>
-                <a href={`${pool.explorer}/token/${currency1}`} target="_blank" rel="noreferrer">
-                  {short(currency1)}
-                </a>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div className="row subject" style={{ marginTop: 10 }}>
-        <label className="field">
-          <span className="lbl">Size per side ({pool.sym0} / {pool.sym1})</span>
-          <input value={size} onChange={(e) => setSize(e.target.value)} inputMode="decimal" />
-        </label>
-        <span className="micro">
+        <p className="micro pc-quote">
           {quote
-            ? `pulls ≈ ${fmt(quote.amount0 / 10 ** pool.dec0)} ${pool.sym0} + ${fmt(
-                quote.amount1 / 10 ** pool.dec1,
-              )} ${pool.sym1}, capped at ${fmt(Number(quote.max0) / 10 ** pool.dec0)} + ${fmt(
-                Number(quote.max1) / 10 ** pool.dec1,
-              )} · L ${quote.liquidity.toString()} over ticks ${ticks.tickLower}…${ticks.tickUpper}`
+            ? `pulls ≈ ${fmt(quote.amount0 / 10 ** pool.dec0)} ${pool.sym0} + ${fmt(quote.amount1 / 10 ** pool.dec1)} ${pool.sym1}, capped at ${fmt(
+                Number(quote.max0) / 10 ** pool.dec0,
+              )} + ${fmt(Number(quote.max1) / 10 ** pool.dec1)} · L ${quote.liquidity.toString()}`
             : "enter a size to quote the position"}
-        </span>
-      </div>
-
-      <div className="row" style={{ marginTop: 8 }}>
-        <button
-          type="button"
-          className="btn btn-sm btn-action"
-          disabled={!covered || busy !== null}
-          onClick={() => void addLiquidity()}
-          title={covered ? "pull under the client's mandate and mint the position to them" : "the mandate does not cover this size on this chain"}
-        >
-          <span className="cap">{busy === "add" ? "Adding…" : "Add to the pool"}</span>
-        </button>
-        <span className={`tag ${covered ? "ok" : "warn"}`}>{covered ? "covered by the mandate" : "mandate too small for this size"}</span>
-        <span className="micro">
-          {covered
-            ? "the desk's transaction — the client signs nothing here"
-            : "reduce the size, or ask the client to re-sign a larger mandate"}
-        </span>
-      </div>
-
-      <div className="row" style={{ marginTop: 8 }}>
-        <button
-          type="button"
-          className="btn btn-sm"
-          disabled={!position || busy !== null}
-          onClick={() => void withdraw("collect")}
-          title="sweep the fees this position has earned, to the client"
-        >
-          <span className="cap">{busy === "collect" ? "Collecting…" : "Collect fees"}</span>
-        </button>
-        <button
-          type="button"
-          className="btn btn-sm"
-          disabled={!position || busy !== null}
-          onClick={() => void withdraw("remove")}
-          title="withdraw the whole position, principal and fees, to the client"
-        >
-          <span className="cap">{busy === "remove" ? "Withdrawing…" : "Take it back"}</span>
-        </button>
-        <span className="micro">
-          {position
-            ? "client's own wallet only — the desk has no path to either of these"
-            : "nothing to take back on this chain yet"}
-        </span>
-      </div>
-
-      <p className="note">
-        Fees are not quoted here. v4 accrues them into the position and settles the figure at the moment you sweep;
-        a number computed off two `feeGrowthInside` snapshots in a browser would be a guess presented as earnings.
-        Collect returns what the pool actually owes, to the client&rsquo;s address.
-      </p>
-
-      <p className="note">
-        Standing to the LiquidityDesk under the client&rsquo;s one signed mandate:{" "}
-        {formatUnits(liveAllowance(allowance0), pool.dec0)} {pool.sym0},{" "}
-        {formatUnits(liveAllowance(allowance1), pool.dec1)} {pool.sym1}.
-        {covered
-          ? " Enough for this size. `add` settles by calling CrossPermit.transferFrom(client → PoolManager) inside the v4 unlock — the desk never holds a balance, and the client is not asked to sign again."
-          : " Not enough for this size on this chain. The mandate is the only thing that can raise it, and only the client can sign one."}
-      </p>
-
-      {error && (
-        <p className="note blocked" role="alert">
-          {error}
         </p>
-      )}
-      {done && (
+
+        <dl className="kv-list pc-kv">
+          <div className="kv">
+            <dt className="micro">Standing to the desk</dt>
+            <dd>
+              {formatUnits(standing0, pool.dec0)} {pool.sym0} · {formatUnits(standing1, pool.dec1)} {pool.sym1}
+            </dd>
+          </div>
+          <div className="kv">
+            <dt className="micro">PoolManager</dt>
+            <dd>
+              <a href={`${pool.explorer}/address/${pool.poolManager}`} target="_blank" rel="noreferrer">
+                {short(pool.poolManager)}
+              </a>
+            </dd>
+          </div>
+          <div className="kv">
+            <dt className="micro">LiquidityDesk</dt>
+            <dd>
+              <a href={`${pool.explorer}/address/${desk}`} target="_blank" rel="noreferrer">
+                {short(desk)}
+              </a>
+            </dd>
+          </div>
+          <div className="kv">
+            <dt className="micro">Tokens</dt>
+            <dd>
+              <a href={`${pool.explorer}/token/${currency0}`} target="_blank" rel="noreferrer">
+                {short(currency0)}
+              </a>{" "}
+              ·{" "}
+              <a href={`${pool.explorer}/token/${currency1}`} target="_blank" rel="noreferrer">
+                {short(currency1)}
+              </a>
+            </dd>
+          </div>
+        </dl>
+
         <p className="note">
-          {done.startsWith("http") ? (
-            <a href={done} target="_blank" rel="noreferrer">
-              transaction sent — {short(done.split("/tx/")[1] ?? "", 8)}
-            </a>
-          ) : (
-            done
-          )}
+          {covered
+            ? "Desk adds; only the client's own wallet can collect or take back."
+            : "Mandate too small here — only the client can raise it."}
         </p>
-      )}
-      {chainById(pool.chainId) === undefined && (
-        <p className="note">This chain is not in the dashboard&rsquo;s own list, so balances are not shown for it.</p>
-      )}
+
+        {error && (
+          <p className="note blocked" role="alert">
+            {error}
+          </p>
+        )}
+        {done && (
+          <p className="note">
+            {done.startsWith("http") ? (
+              <a href={done} target="_blank" rel="noreferrer">
+                transaction sent — {short(done.split("/tx/")[1] ?? "", 8)}
+              </a>
+            ) : (
+              done
+            )}
+          </p>
+        )}
+      </div>
+
+      {chainById(pool.chainId) === undefined && <p className="note">Chain not in the desk&rsquo;s list.</p>}
     </section>
   );
 }

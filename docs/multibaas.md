@@ -192,7 +192,8 @@ Choose which signer — web3 wallet, Cloud Wallet, Safe — signs a given intera
 
 ## What we hit that the docs do not say
 
-Kept in `FEEDBACK.md` from hour one, restated here because it shapes the architecture above.
+`FEEDBACK.md` at the repo root carries this table verbatim, alongside the Uniswap items. It is
+restated here because it shapes the architecture above.
 
 | Friction | Cost |
 |---|---|

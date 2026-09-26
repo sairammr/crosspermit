@@ -35,6 +35,12 @@ disagrees with the chain.
 The fastest revocation is a cross-chain `LOCK`. It sets the allowance to zero and marks it locked, so
 no later grant can raise it until an explicitly newer `UNLOCK` arrives.
 
+**A `LOCK` is per `(owner, token, spender)`, and a web mandate grants two spenders** — the Universal
+Router and that chain's `LiquidityDesk`. Locking only the router leaves a live allowance the UI does
+not report. `revokeEntries()` in `packages/sdk/src/crosspermit.ts` builds the bundle covering every
+spender on every chain, which is what the `lock` stage below uses, so one signature retires the lot.
+There is no revoke button in the dashboard; this is the mechanism.
+
 ```bash
 set -a && . ./.env && set +a
 bun run packages/sdk/scripts/lifecycle.ts --only lock
@@ -198,9 +204,16 @@ The boot banner is the fastest full picture: it names the signer, the custody mo
 ## Routine verification
 
 ```bash
-script/test.sh                                              # everything offline
+script/test.sh                                              # the single offline gate
 cd contracts && FORK=1 forge test --match-path 'test/*Fork*' -vv   # live-chain proofs
 ```
+
+`script/test.sh` is what root `bun run test` and the CI `offline` job both call, so there is one
+command to believe. It covers: typecheck of `packages/sdk`, `packages/multibaas`, `apps/web` and
+`apps/relayer`; their unit suites; `forge build`; regeneration of the parity fixtures from the
+working tree; `forge test`; and a branding grep. CI runs the fork proofs as two further jobs —
+`fork` (Router + Liquidity, testnets) is **blocking**, `mainnet-fork` (Treasury) is
+`continue-on-error` because it depends on a mainnet endpoint being reachable.
 
 Run the fork suite after any dependency bump. It is the thing that catches Aave or Uniswap changing
 an interface out from under the hand-written ones in `contracts/src/treasury/interfaces`.

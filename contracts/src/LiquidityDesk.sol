@@ -36,16 +36,24 @@ interface IPoolManagerLiquidity {
  *      position per client per range rather than one pooled position this contract has to
  *      apportion. No share maths, therefore no share-maths bug.
  *
- *      `add` is callable by anyone, and that is the mandate, not a hole: the only account whose
- *      tokens can move is one that signed an allowance naming THIS contract as spender, the tokens
- *      can only move into the pool, and the resulting position belongs to them. A desk managing a
- *      client's book is exactly the caller this is for. `remove` and `collect` are restricted to
- *      the owner, because those move value in the direction a mandate must never authorise.
+ *      Every entry point is scoped to a caller. `remove` and `collect` take the owner from
+ *      `msg.sender`, because those move value in the direction a mandate must never authorise.
+ *      `add` names the owner as a parameter — a desk managing a client's book is exactly the
+ *      caller it is for — so it is gated on the owner having said so: either they call it
+ *      themselves, or they registered the caller through `setOperator`. It cannot be open, because
+ *      `key` comes from the caller too: an open `add` lets anyone name a pool of their own making
+ *      and settle the owner's entire allowance into it, which is a drain wearing a mandate's
+ *      clothes.
  */
 contract LiquidityDesk {
     /// @notice The only way a client's principal enters a pool through this contract.
     ICrossPermit public immutable CROSS_PERMIT;
     IPoolManagerLiquidity public immutable POOL_MANAGER;
+
+    /// @notice owner => caller allowed to run `add` on that owner's behalf. Revocable at any time.
+    mapping(address => mapping(address => bool)) public operators;
+
+    event OperatorSet(address indexed owner, address indexed operator, bool allowed);
 
     event LiquidityAdded(
         address indexed owner, bytes32 indexed poolId, int24 tickLower, int24 tickUpper, uint128 liquidity, uint256 amount0, uint256 amount1
@@ -55,6 +63,7 @@ contract LiquidityDesk {
     );
 
     error NotPoolManager(address caller);
+    error NotAuthorised(address owner, address caller);
     error PullExceedsMaximum(address currency, uint256 owed, uint256 maximum);
     error NothingToDo();
 
@@ -76,10 +85,21 @@ contract LiquidityDesk {
     }
 
     /**
+     * @notice Name, or unname, an address that may call `add` for you.
+     * @dev    A CrossPermit allowance says how much a desk may move; it says nothing about which
+     *         pool. This is where the owner says who gets to choose that.
+     */
+    function setOperator(address operator, bool allowed) external {
+        operators[msg.sender][operator] = allowed;
+        emit OperatorSet(msg.sender, operator, allowed);
+    }
+
+    /**
      * @notice Add `liquidity` over [`tickLower`, `tickUpper`] for `owner`, pulled under their writ.
      * @param  max0 Most of `currency0` this may pull. The slippage guard: the amount owed depends on
      *         the pool price at execution, which the caller cannot pin down when they sign.
      * @param  max1 The same, for `currency1`.
+     * @dev    Callable by `owner`, or by an address `owner` registered through `setOperator`.
      */
     function add(
         address owner,
@@ -90,6 +110,7 @@ contract LiquidityDesk {
         uint128 max0,
         uint128 max1
     ) external {
+        if (msg.sender != owner && !operators[owner][msg.sender]) revert NotAuthorised(owner, msg.sender);
         if (liquidity == 0) revert NothingToDo();
         POOL_MANAGER.unlock(
             abi.encode(

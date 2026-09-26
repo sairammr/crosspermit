@@ -93,9 +93,22 @@ export class Admission {
     return { ok: true };
   }
 
-  /** Count an accepted intent against the owner's window. */
+  /**
+   * Reserve a slot in the owner's window.
+   *
+   * Called straight after `checkOwner`, not after the submission finishes: the counter is the only
+   * thing standing between one owner and N concurrent POSTs, and a counter incremented after an
+   * `await` is read as zero by every request already in flight. Anything that turns out not to be a
+   * new intent gives the slot back with `releaseIntent`.
+   */
   recordIntent(owner: Address): void {
     this.window(owner).intents += 1;
+  }
+
+  /** Hand back a reservation for an intent that was a replay, or that never got off the ground. */
+  releaseIntent(owner: Address): void {
+    const w = this.windows.get(owner.toLowerCase());
+    if (w) w.intents = Math.max(0, w.intents - 1);
   }
 
   /**
@@ -109,13 +122,21 @@ export class Admission {
     this.window(owner).gasWei += wei;
   }
 
-  /** What an owner has left, for the status endpoint. */
+  /**
+   * What an owner has left, for the status endpoint.
+   *
+   * Reads, never creates. `window()` inserts a map entry as a side effect, so routing a read
+   * through it lets anyone who can name an address grow this map one address at a time. An owner
+   * with no window has spent nothing, which is a full budget.
+   */
   remaining(owner: Address): { intents: number; gasWei: string; resetsInMs: number } {
-    const w = this.window(owner);
+    const now = Date.now();
+    const existing = this.windows.get(owner.toLowerCase());
+    const w = existing && now - existing.started < this.config.windowMs ? existing : null;
     return {
-      intents: Math.max(0, this.config.maxIntentsPerWindow - w.intents),
-      gasWei: (this.config.maxGasWeiPerWindow - w.gasWei).toString(),
-      resetsInMs: Math.max(0, w.started + this.config.windowMs - Date.now()),
+      intents: Math.max(0, this.config.maxIntentsPerWindow - (w?.intents ?? 0)),
+      gasWei: (this.config.maxGasWeiPerWindow - (w?.gasWei ?? 0n)).toString(),
+      resetsInMs: w ? Math.max(0, w.started + this.config.windowMs - now) : 0,
     };
   }
 

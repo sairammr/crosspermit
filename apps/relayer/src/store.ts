@@ -16,6 +16,8 @@ export type LegRow = {
   error: string | null;
   attempts: number;
   updatedAt: number;
+  /** When the transaction actually went out. Set once, on the first move to `submitted`. */
+  broadcastAt: number | null;
 };
 
 export type IntentRow = {
@@ -52,10 +54,15 @@ export class Store {
         error     TEXT,
         attempts  INTEGER NOT NULL DEFAULT 0,
         updatedAt INTEGER NOT NULL,
+        broadcastAt INTEGER,
         PRIMARY KEY (intentId, chainId)
       );
       CREATE INDEX IF NOT EXISTS legs_status ON legs(status);
     `);
+    // `broadcastAt` came later, and the database file outlives the schema that made it. An
+    // operator should not have to delete their fan-out state to take an upgrade.
+    const columns = this.db.query("PRAGMA table_info(legs)").all() as { name: string }[];
+    if (!columns.some((c) => c.name === "broadcastAt")) this.db.exec("ALTER TABLE legs ADD COLUMN broadcastAt INTEGER");
   }
 
   /**
@@ -99,9 +106,16 @@ export class Store {
   }
 
   finish(intentId: string, chainId: number, status: LegStatus, txHash: Hex | null, error: string | null): void {
+    const now = Date.now();
     this.db
-      .query("UPDATE legs SET status=?, txHash=?, error=?, updatedAt=? WHERE intentId=? AND chainId=?")
-      .run(status, txHash, error, Date.now(), intentId, chainId);
+      .query(
+        // COALESCE, so the FIRST broadcast wins: a receipt-watch timeout rewrites this row as
+        // `submitted` a second time, and a sweeper needs to know when the transaction went out,
+        // not when we last gave up watching it.
+        "UPDATE legs SET status=?, txHash=?, error=?, updatedAt=?, broadcastAt=COALESCE(broadcastAt,?)" +
+          " WHERE intentId=? AND chainId=?",
+      )
+      .run(status, txHash, error, now, status === "submitted" ? now : null, intentId, chainId);
   }
 
   legs(intentId: string): LegRow[] {
@@ -113,15 +127,20 @@ export class Store {
   }
 
   /**
-   * Legs left mid-flight by a crash: `submitting` with nothing recorded.
+   * Legs left mid-flight: `submitting` with nothing recorded, or `submitted` with a hash whose
+   * receipt was never read back.
    *
-   * Deliberately NOT auto-retried on boot. A leg in `submitting` may well have a transaction in the
-   * mempool that this process never saw the hash for, and resubmitting it blind is how one signed
-   * allowance becomes two on-chain. Surface them for an operator instead.
+   * `submitted` belongs here as much as `submitting` does. It is the state a receipt-watch timeout
+   * leaves behind, `claim` excludes it, and nothing else ever looks at it again — so without it a
+   * leg whose transaction landed perfectly sits forever reported as in flight.
+   *
+   * Deliberately NOT auto-retried on boot. Either may have a transaction in the mempool, and
+   * resubmitting one blind is how one signed allowance becomes two on-chain. A `submitted` row
+   * carries its `txHash` and `broadcastAt`, which is everything needed to re-check it instead.
    */
   stranded(olderThanMs = 120_000): LegRow[] {
     return this.db
-      .query("SELECT * FROM legs WHERE status='submitting' AND updatedAt < ?")
+      .query("SELECT * FROM legs WHERE status IN ('submitting','submitted') AND updatedAt < ?")
       .all(Date.now() - olderThanMs) as LegRow[];
   }
 

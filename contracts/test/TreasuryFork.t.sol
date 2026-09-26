@@ -238,18 +238,23 @@ contract TreasuryForkTest is Test {
         oracle.set(NVDAON, 2e18, block.timestamp);
         deal(NVDAON, address(venue), 1_000e18);
 
+        // Every buy is pranked as the owner: `buy` is owner-only now, so an unpranked call would
+        // revert with NotOwner before it ever reached the gate or the band this test is about.
         // No gate configured at all: deny.
         vm.expectRevert(EquityDesk.NoGate.selector);
+        vm.prank(owner);
         desk.buy(NVDAON, owner, 100e6, 0);
 
         // Gate configured but this account not permitted: still deny.
         vm.prank(admin);
         desk.setGate(gate);
         vm.expectRevert(abi.encodeWithSelector(EquityDesk.ComplianceDenied.selector, owner, NVDAON));
+        vm.prank(owner);
         desk.buy(NVDAON, owner, 100e6, 0);
 
         // Permitted: the fill goes through and the equity lands with the OWNER, not the desk.
         gate.allow(owner, NVDAON);
+        vm.prank(owner);
         uint256 out = desk.buy(NVDAON, owner, 100e6, 0);
         assertGt(out, 0, "no equity delivered");
         assertEq(IERC20(NVDAON).balanceOf(owner), out, "equity did not land with the owner");
@@ -278,21 +283,25 @@ contract TreasuryForkTest is Test {
         // Stale by more than maxPriceAge.
         oracle.set(NVDAON, 2e18, block.timestamp - 2 hours);
         vm.expectRevert();
+        vm.prank(owner);
         desk.buy(NVDAON, owner, 100e6, 0);
 
         // A price from the future is as broken as one too old.
         oracle.set(NVDAON, 2e18, block.timestamp + 1 hours);
         vm.expectRevert();
+        vm.prank(owner);
         desk.buy(NVDAON, owner, 100e6, 0);
 
         // Fresh price, but the venue fills far away from it: reject rather than fill wide.
         oracle.set(NVDAON, 2e18, block.timestamp);
         venue.setRate(3e18);
         vm.expectRevert();
+        vm.prank(owner);
         desk.buy(NVDAON, owner, 100e6, 0);
 
         // Back inside the band: fills.
         venue.setRate(2e18);
+        vm.prank(owner);
         assertGt(desk.buy(NVDAON, owner, 100e6, 0), 0, "in-band fill was rejected");
     }
 

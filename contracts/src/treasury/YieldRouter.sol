@@ -135,15 +135,18 @@ contract YieldRouter {
         uint256 supply_ = totalShares[id];
         shares = supply_ == 0 || supplied == 0 ? amount : (uint256(amount) * supply_) / supplied;
 
+        // Mint before the external calls, the same way `withdraw` burns before its own: the token
+        // and the Spoke are the reentry points, and a second deposit landing while `totalShares`
+        // still held the cached pre-mint figure would overwrite the first one's shares.
+        totalShares[id] = supply_ + shares;
+        sharesOf[id][owner] += shares;
+        principal[id] += amount;
+
         CROSS_PERMIT.transferFrom(owner, address(this), amount, address(m.asset));
 
         // forceApprove, not approve: some tokens revert on a non-zero-to-non-zero allowance change.
         m.asset.forceApprove(address(m.spoke), amount);
         m.spoke.supply(m.reserveId, amount, address(this));
-
-        totalShares[id] = supply_ + shares;
-        sharesOf[id][owner] += shares;
-        principal[id] += amount;
 
         emit Deposited(id, owner, amount, shares);
     }

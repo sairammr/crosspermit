@@ -170,7 +170,10 @@ export class Relayer {
     });
 
     try {
-      const receipt = await chain.client.waitForTransactionReceipt({ hash: txHash });
+      // Two confirmations, not one. A single-confirmation receipt can be from a block that is
+      // reorged out minutes later, and `confirmed` is a terminal row nothing revisits — so the
+      // relayer would be reporting an allowance that no longer exists anywhere.
+      const receipt = await chain.client.waitForTransactionReceipt({ hash: txHash, confirmations: 2 });
       const ok = receipt.status === "success";
       // Charged from the receipt, not from an estimate. A reverted transaction still burned gas, so
       // it is charged too — otherwise a caller could grind the relayer's balance with failures.
@@ -186,8 +189,20 @@ export class Relayer {
       });
     } catch (e) {
       // The transaction is broadcast; we just could not watch it. Say exactly that — "failed" here
-      // would be a lie that invites a resubmission of a permit that may well be landing.
-      this.store.finish(id, leg.chainId, "submitted", txHash, `broadcast, but the receipt was not seen: ${shortReason(e)}`);
+      // would be a lie that invites a resubmission of a permit that may well be landing. The row
+      // stays `submitted`, which `store.stranded()` scans and `broadcastAt` timestamps, so the
+      // hash can be re-checked rather than re-sent. Emitting matters as much: a subscriber that
+      // heard `submitted` and then nothing has no way to tell a slow chain from a dead watcher.
+      const error = `broadcast, but the receipt was not seen: ${shortReason(e)}`;
+      this.store.finish(id, leg.chainId, "submitted", txHash, error);
+      this.emit({
+        intentId: id,
+        chainId: leg.chainId,
+        status: "submitted",
+        txHash,
+        error,
+        explorer: chain.explorer ? `${chain.explorer}/tx/${txHash}` : undefined,
+      });
     }
   }
 

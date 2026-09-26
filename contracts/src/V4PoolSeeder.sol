@@ -2,6 +2,7 @@
 pragma solidity ^0.8.27;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 // Minimal mirror of the v4-core surface this contract touches, so the repo needs no v4 submodule.
 // Layouts pinned to Uniswap/v4-core @ 59d3ecf (the commit v4-periphery @ a7af5b34 builds against).
@@ -43,6 +44,8 @@ interface IPoolManagerMinimal {
  *         out of the picture — none of that is what the CrossPermit router is trying to prove.
  */
 contract V4PoolSeeder {
+    using SafeERC20 for IERC20;
+
     IPoolManagerMinimal public immutable POOL_MANAGER;
 
     /// @dev v4-core libraries/Pool.sol — the only revert `seed` is allowed to swallow.
@@ -98,7 +101,7 @@ contract V4PoolSeeder {
         if (delta >= 0) return;
         uint256 owed = uint256(uint128(-delta));
         POOL_MANAGER.sync(currency);
-        IERC20(currency).transfer(address(POOL_MANAGER), owed);
+        IERC20(currency).safeTransfer(address(POOL_MANAGER), owed);
         POOL_MANAGER.settle();
     }
 

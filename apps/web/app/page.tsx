@@ -14,11 +14,11 @@ import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import Lenis from "lenis";
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { useRef } from "react";
 
 import { CHAINS, CROSS_PERMIT } from "../src/config";
 import { PAPER } from "../src/dither";
-import { DitherArea, DitherBars, DitherWash, DotText, HorseMatrix } from "../src/dithergraph";
+import { DitherWash, DotText, HorseMatrix } from "../src/dithergraph";
 import { Machine } from "../src/machine";
 import { Rail } from "./rail";
 
@@ -26,16 +26,9 @@ gsap.registerPlugin(useGSAP, ScrollTrigger);
 
 const DOMAIN_SEPARATOR = "0x4ce820a58ffb00fe1b6cb52f083bdd1cfd176732c34db34a84517668750aa5e4";
 
-/** Aave v4 MAIN Spoke supply curve over the thirty days the fork suite settles. */
-const APY_SERIES = [3.41, 3.52, 3.48, 3.71, 3.84, 3.79, 3.95, 4.02, 3.98, 4.11, 4.06, 4.19, 4.24, 4.06];
-/** Fee capture per chain per day, from the 0.3% pool the lifecycle swaps through. */
-const FEE_SERIES = [4, 7, 5, 9, 12, 8, 14, 11, 17, 15, 21, 19, 24, 22];
-
 export default function Landing() {
   const root = useRef<HTMLDivElement>(null);
   const surf = useRef<HTMLDivElement>(null);
-  const [apyProgress, setApyProgress] = useState(0);
-  const [feeProgress, setFeeProgress] = useState(0);
 
   useGSAP(
     () => {
@@ -74,24 +67,9 @@ export default function Landing() {
         });
       }
 
-      // Charts are scrubbed rather than played: a reader who scrolls back up should see the series
-      // retreat, not sit finished. Rounded before it reaches React so a scroll costs ~50 renders,
-      // not one per frame.
-      const scrub = (selector: string, set: (n: number) => void) =>
-        ScrollTrigger.create({
-          trigger: selector,
-          start: "top 85%",
-          end: "top 38%",
-          onUpdate: (self) => set(Math.round(self.progress * 50) / 50),
-        });
-      scrub(".apy-chart", setApyProgress);
-      scrub(".fee-chart", setFeeProgress);
-
       mm.add("(prefers-reduced-motion: reduce)", () => {
         gsap.set(".cpu-enter", { opacity: 1, clearProps: "filter" });
         gsap.set(".reveal", { opacity: 1, y: 0 });
-        setApyProgress(1);
-        setFeeProgress(1);
       });
 
       mm.add("(prefers-reduced-motion: no-preference)", () => {
@@ -594,7 +572,7 @@ export default function Landing() {
           </div>
 
           <div className="grid g2">
-            <div className="mod reveal apy-chart">
+            <div className="mod reveal">
               <div
                 style={{
                   display: "flex",
@@ -608,10 +586,7 @@ export default function Landing() {
                 </div>
                 <span className="badge badge-out">mainnet fork</span>
               </div>
-              <div className="chartbox tall">
-                <DitherArea values={APY_SERIES} variant="gradient" bloom="aura" progress={apyProgress} />
-              </div>
-              <div style={{ marginTop: 16, display: "grid", gap: 2 }}>
+              <div style={{ marginTop: 20, display: "grid", gap: 2 }}>
                 <div className="kv">
                   <span>Supply APR</span>
                   <span>3.976%</span>
@@ -631,7 +606,7 @@ export default function Landing() {
               </div>
             </div>
 
-            <div className="mod reveal fee-chart">
+            <div className="mod reveal">
               <div
                 style={{
                   display: "flex",
@@ -645,15 +620,7 @@ export default function Landing() {
                 </div>
                 <span className="badge badge-live">live testnets</span>
               </div>
-              <div className="chartbox tall">
-                <DitherBars
-                  values={FEE_SERIES}
-                  variant="solid"
-                  hotIndex={FEE_SERIES.length - 1}
-                  progress={feeProgress}
-                />
-              </div>
-              <div style={{ marginTop: 16, display: "grid", gap: 2 }}>
+              <div style={{ marginTop: 20, display: "grid", gap: 2 }}>
                 <div className="kv">
                   <span>Pool fee</span>
                   <span>0.30%</span>
@@ -733,7 +700,12 @@ export default function Landing() {
                 "Bounded",
                 "Amount, spender and expiry live inside the message they signed. Nothing can raise them afterwards.",
               ],
-              ["Revocable", "One signature LOCKs the desk everywhere — proved by a spend that reverts, not by a flag."],
+              [
+                "Revocable",
+                "One signature LOCKs the desk everywhere — proved by a spend that reverts, not by a flag. Today that" +
+                  " signature is sent from the lifecycle script: the dashboard withdraws the invitation, it has no" +
+                  " revoke button yet.",
+              ],
               [
                 "Non-custodial",
                 "The relayer pays gas and nothing else. It cannot change recipient, amount or spender.",

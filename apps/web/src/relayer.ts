@@ -51,7 +51,9 @@ export function useRelayerChains() {
   useEffect(() => {
     let live = true;
     fetch(`${DESK_API}/chains`)
-      .then((r) => r.json())
+      // A refusal is `false`, not its body: an error object spread in here reaches the UI as a
+      // `chains` field that is missing, and every consumer reads `.chains.length`.
+      .then(async (r) => (r.ok ? ((await r.json()) as { crossPermit: string; chains: ChainRow[] }) : false))
       .then((d) => live && setState(d))
       .catch(() => live && setState(false));
     return () => {
@@ -132,25 +134,18 @@ export function useIntentStream(intentId: string | null) {
 
 export function useRecentIntents(refreshKey: number) {
   const [intents, setIntents] = useState<{ intentId: string; owner: string; root: string; createdAt: number }[]>([]);
+  // A refusal is not an empty list. This route needs a session and, upstream, the relayer's key; a
+  // 401 body parsed as JSON has no `intents`, so the old `d.intents ?? []` rendered "0 signatures
+  // fanned out" and looked like a quiet Tuesday rather than a broken proxy.
   useEffect(() => {
+    let live = true;
     fetch(`${DESK_API}/intents?limit=25`)
-      .then((r) => r.json())
-      .then((d) => setIntents(d.intents ?? []))
-      .catch(() => setIntents([]));
+      .then(async (r) => (r.ok ? ((await r.json()) as { intents?: typeof intents }) : false))
+      .then((d) => { if (live) setIntents(d === false ? [] : (d.intents ?? [])); })
+      .catch(() => { if (live) setIntents([]); });
+    return () => { live = false; };
   }, [refreshKey]);
   return intents;
-}
-
-export function useQuota(owner: string | undefined, refreshKey: number) {
-  const [quota, setQuota] = useState<{ intents: number; gasWei: string; resetsInMs: number } | null>(null);
-  useEffect(() => {
-    if (!owner) return;
-    fetch(`${DESK_API}/quota/${owner}`)
-      .then((r) => r.json())
-      .then((d) => setQuota(d.remaining ?? null))
-      .catch(() => setQuota(null));
-  }, [owner, refreshKey]);
-  return quota;
 }
 
 export type AllowanceRow = {
@@ -179,6 +174,9 @@ export type TreasuryView = {
  * `uncovered` is part of the payload rather than something the UI infers: a chain absent from the
  * rows because nothing indexes it looks identical to a chain with no outstanding authority, and a
  * treasury screen must never let those two read the same.
+ *
+ * A refusal is `false`, never a half-filled view. A 401 or a 502 spread into a `TreasuryView` would
+ * render as "0.00 USDC outstanding", which is the one answer a treasury screen must never invent.
  */
 export function useTreasury(owner: string | undefined, refreshKey: number) {
   const [view, setView] = useState<TreasuryView | null | false>(null);
@@ -191,8 +189,8 @@ export function useTreasury(owner: string | undefined, refreshKey: number) {
     let live = true;
     setView(null);
     fetch(`${DESK_API}/treasury/${owner}`)
-      .then(async (r) => ({ ok: r.ok, body: (await r.json()) as TreasuryView }))
-      .then(({ ok, body }) => live && setView(ok ? body : { ...body, rows: body.rows ?? [] }))
+      .then(async (r) => (r.ok ? ((await r.json()) as TreasuryView) : false))
+      .then((d) => live && setView(d))
       .catch(() => live && setView(false));
     return () => {
       live = false;

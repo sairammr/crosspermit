@@ -8,13 +8,19 @@ cd "$(dirname "$0")/.."
 step() { printf '\n=== %s ===\n' "$*"; }
 
 step "typecheck"
-for pkg in packages/sdk packages/multibaas apps/relayer; do
+# Each tsc runs as its own statement rather than the left side of an `&&`, which `set -e` exempts:
+# a failing typecheck used to print nothing and still reach ALL OFFLINE CHECKS PASSED.
+for pkg in packages/sdk packages/multibaas apps/web apps/relayer; do
   printf '  %-22s' "$pkg"
-  (cd "$pkg" && bunx tsc --noEmit) && echo "ok"
+  (cd "$pkg" && bunx tsc --noEmit)
+  echo "ok"
 done
 
 step "unit tests"
 (cd packages/sdk && bun test)
+# apps/web carries the desk auth and tenancy suite — the product's only authorization layer, so it
+# is the last place a break should be allowed to reach a deploy unnoticed.
+(cd apps/web && bun test src test)
 (cd apps/relayer && bun test)
 
 step "contracts"

@@ -1,4 +1,17 @@
+# Vercel uploads the working tree minus this file, and the tree is dirty with real secrets during a
+# deploy — .gitignore does not apply here, so the env files have to be named again.
+.env
+.env.*
+!.env.example
+
+.git
+node_modules
+contracts/lib
 contracts/cache
 contracts/out
 .work
+
+# Local desk/relayer stores. Never useful on the host, and they carry live tenancy rows.
+.desk.db*
+*.sqlite*
 apps/*/**.sqlite*

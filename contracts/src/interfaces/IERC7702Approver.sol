@@ -17,6 +17,10 @@ interface IERC7702Approver {
     /// @notice Thrown when a token address is zero
     error ZeroAddress();
 
+    /// @notice Thrown when `approve` is called on the deployed contract rather than through the
+    ///         caller's own ERC-7702 delegation
+    error NotSelf();
+
     /**
      * @notice The CrossPermit contract address that will receive approvals
      * @return The address of the CrossPermit contract

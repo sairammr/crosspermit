@@ -239,6 +239,8 @@ contract AllowanceLedger is IAllowanceLedger {
         }
 
         allowances[from][tokenKey][spender] = allowed;
+
+        emit Spend(from, tokenKey, spender, amount, allowed.amount);
     }
 
     /**

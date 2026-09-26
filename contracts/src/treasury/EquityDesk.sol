@@ -89,6 +89,7 @@ contract EquityDesk {
     event RiskParamsSet(uint256 maxPriceAge, uint256 maxDeviationBps);
 
     error NotAdmin();
+    error NotOwner(address owner, address caller);
     error NotListed(address equityToken);
     error ComplianceDenied(address account, address equityToken);
     error NoGate();
@@ -137,11 +138,17 @@ contract EquityDesk {
      * @notice Buy `equityToken` for `owner`, funded by pulling cash through CrossPermit.
      * @dev The equity lands with `owner`, never with this desk — a desk that custodies the position
      *      would be a different regulated thing entirely.
+     *
+     *      `owner` is a parameter only so the fill can be read off the call; it must still be the
+     *      caller. A CrossPermit allowance bounds how much cash may move, not when — leaving this
+     *      open would let anyone convert a client's authorised cash at a block of their choosing,
+     *      and picking the block is picking the price.
      */
     function buy(address equityToken, address owner, uint160 cashIn, uint256 minOut)
         external
         returns (uint256 equityOut)
     {
+        if (msg.sender != owner) revert NotOwner(owner, msg.sender);
         if (cashIn == 0) revert ZeroAmount();
         Listing memory l = _listed(equityToken);
         _checkCompliance(owner, equityToken);
