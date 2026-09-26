@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Deploys the two halves of CrossPermit to Ethereum / Base / Unichain Sepolia:
+# Deploys the two halves of CrossPermit to Ethereum / Base / Optimism Sepolia:
 #
 #   core    CrossPermit at the SAME address on every chain, via the ERC-2470 singleton factory.
 #           Identical init code + identical salt + same factory => identical address. That is a hard
@@ -12,7 +12,7 @@
 #           selector-identical to Permit2's, so the router's payment path is untouched.
 #
 # Usage: script/deploy.sh [core|router|all]
-# Env (via .env): PRIVATE_KEY, SALT, RPC_ETH_SEPOLIA, RPC_BASE_SEPOLIA, RPC_UNI_SEPOLIA
+# Env (via .env): PRIVATE_KEY, SALT, RPC_ETH_SEPOLIA, RPC_BASE_SEPOLIA, RPC_OP_SEPOLIA
 # Optional: DEPLOYER_ACCOUNT + KEYSTORE_PASSWORD_FILE keep the key out of argv for the router step.
 #
 # Written for the bash 3.2 that ships with macOS: no associative arrays, no GNU-only sed.
@@ -30,7 +30,7 @@ if [ -f .env ]; then
 fi
 : "${PRIVATE_KEY:?set PRIVATE_KEY in .env}"
 : "${SALT:?set SALT in .env}"
-: "${RPC_ETH_SEPOLIA:?}" "${RPC_BASE_SEPOLIA:?}" "${RPC_UNI_SEPOLIA:?}"
+: "${RPC_ETH_SEPOLIA:?}" "${RPC_BASE_SEPOLIA:?}" "${RPC_OP_SEPOLIA:?}"
 
 ERC2470=0xce0042B868300000d44A59004Da54A005ffdcf9f
 CANONICAL_PERMIT2=0x000000000022D473030F116dDEE9F6B43aC78BA3
@@ -43,7 +43,7 @@ chains() {
   cat <<EOF
 Sepolia|11155111|$RPC_ETH_SEPOLIA
 BaseSepolia|84532|$RPC_BASE_SEPOLIA
-UnichainSepolia|1301|$RPC_UNI_SEPOLIA
+OPSepolia|11155420|$RPC_OP_SEPOLIA
 EOF
 }
 
@@ -127,7 +127,7 @@ deploy_core() {
   "chains": {
     "ethereum-sepolia": 11155111,
     "base-sepolia": 84532,
-    "unichain-sepolia": 1301
+    "optimism-sepolia": 11155420
   }
 }
 EOF
@@ -171,6 +171,18 @@ deploy_router() {
   while IFS='|' read -r name id rpc; do
     f="script/deployParameters/Deploy$name.s.sol"
     [ -f "$UR_CLONE/$f" ] || { echo "missing $f"; exit 1; }
+
+    # Skip a chain that already has a recorded router pointing at THIS core. Without this, a re-run
+    # of `deploy.sh all` quietly deploys a second router per chain and rewrites the record to it,
+    # which strands every allowance already granted to the first one.
+    rec="$ROOT/deployments/router-$name.json"
+    if [ -f "$rec" ] && [ "$(jq -r .crossPermit "$rec")" = "$core" ]; then
+      existing=$(jq -r .universalRouter "$rec")
+      if have_code "$existing" "$rpc"; then
+        echo "  $name: router already at $existing, skipping"
+        continue
+      fi
+    fi
     git -C "$UR_CLONE" checkout -q -- "$f"
     # Count literals, not lines: two on one line would pass a line count and leave one unpatched.
     n=$(grep -o "$CANONICAL_PERMIT2" "$UR_CLONE/$f" | wc -l | tr -d ' ')

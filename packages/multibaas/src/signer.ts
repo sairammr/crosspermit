@@ -28,6 +28,23 @@ export interface Signer {
 }
 
 /**
+ * The next usable nonce, taken as the MAX of `latest` and `pending`.
+ *
+ * Not simply `pending`, which is what every client library asks for: Unichain Sepolia's public RPC
+ * answers `pending` with 0 while `latest` is correct, and a transaction signed with that nonce is
+ * rejected as "lower than the current nonce of the account". Taking the max is correct on a healthy
+ * node too — `pending` is never below `latest` there — so this costs one extra call and removes a
+ * whole class of chain-specific failure.
+ */
+async function nextNonce(client: PublicClient, address: Address): Promise<number> {
+  const [latest, pending] = await Promise.all([
+    client.getTransactionCount({ address, blockTag: "latest" }),
+    client.getTransactionCount({ address, blockTag: "pending" }).catch(() => 0),
+  ]);
+  return Math.max(latest, pending);
+}
+
+/**
  * Key in this process.
  *
  * Optionally broadcasts through MultiBaas rather than straight to the RPC. The transaction is
@@ -47,10 +64,12 @@ export function localSigner(a: {
     address: a.account.address,
     custody: "local",
     async send(tx) {
+      const nonce = tx.nonce ?? (await nextNonce(a.client, a.account.address));
+
       if (!a.multibaas) {
         return a.wallet.sendTransaction({
           account: a.account, chain: null, to: tx.to, data: tx.data,
-          value: tx.value, nonce: tx.nonce, gas: tx.gas,
+          value: tx.value, nonce, gas: tx.gas,
         });
       }
       const signed = await a.wallet.signTransaction({
@@ -59,7 +78,7 @@ export function localSigner(a: {
         to: tx.to,
         data: tx.data,
         value: tx.value,
-        nonce: tx.nonce ?? (await a.client.getTransactionCount({ address: a.account.address, blockTag: "pending" })),
+        nonce,
         gas: tx.gas ?? (await a.client.estimateGas({ account: a.account, to: tx.to, data: tx.data, value: tx.value })),
         ...(await a.client.estimateFeesPerGas()),
         chainId: await a.client.getChainId(),

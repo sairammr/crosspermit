@@ -7,6 +7,6 @@
   "chains": {
     "ethereum-sepolia": 11155111,
     "base-sepolia": 84532,
-    "unichain-sepolia": 1301
+    "optimism-sepolia": 11155420
   }
 }

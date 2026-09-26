@@ -29,9 +29,9 @@ through Uniswap's own unmodified Universal Router.
 | P4 | Deterministic deploy, address reproduced, 3 testnets live | **done** |
 | P5 | Relayer — one click, N chains | **done** |
 | P6 | MultiBaas treasury adapter | **done** |
-| P7 | Aave v4 yield + tokenized-equity desk | |
-| P8 | Institutional dashboard (WalletConnect) | |
-| P9 | Hardening — fuzz, invariants, threat model, ops runbook | |
+| P7 | Aave v4 yield + tokenized-equity desk | **done** |
+| P8 | Institutional dashboard (WalletConnect) | **done** |
+| P9 | Hardening — fuzz, invariants, threat model, ops runbook | **done** |
 
 ### Live addresses
 
@@ -40,7 +40,7 @@ through Uniswap's own unmodified Universal Router.
 | **CrossPermit** (all three chains) | `0x659C6F027FC4F6b2fF7A18dF1e3C3ec78a99de1B` |
 | Router — Ethereum Sepolia | `0x010C1aB71984b7D53b0941d4A7537AE3B806078D` |
 | Router — Base Sepolia | `0xd72f799E1af27E0d95aB4B9658A277A7811Fbcd0` |
-| Router — Unichain Sepolia | `0xda3ab7325840F2d1E01cA66dBBEF88078FE34287` |
+| Router — Optimism Sepolia | `0xda3ab7325840F2d1E01cA66dBBEF88078FE34287` |
 
 Salt `0xb2af67d67b308054b26d8fb210cab127bf699e936190ed01dd9052e7736d1c8c`
 (`keccak256("CrossPermit v1")`), via ERC-2470, solc 0.8.27 / optimizer 1e6 runs.
@@ -53,7 +53,13 @@ SIGNED_CROSSPERMIT_TYPEHASH()  0x2b8986532571ca462e751db5072ea926966480857f91eeb
 CANCEL_CROSSPERMIT_TYPEHASH()  0x184e9b675fc89b0718770fb9e1bf1ebdfe0780b451ab8ed5b69ffdb0c83655ea
 ```
 
-Identical on Ethereum, Base and Unichain Sepolia.
+Identical on Ethereum, Base and Optimism Sepolia.
+
+Optimism Sepolia was added late, which turned out to be the strongest evidence
+the scheme works: the same init code and salt put CrossPermit at the same address
+on a chain it had never touched, and its domain separator matched without any
+coordination. Unichain Sepolia was dropped — MultiBaas does not support it, so a
+chain there could never carry a control-plane audit trail.
 
 ---
 
@@ -389,3 +395,19 @@ without its simulation having succeeded.
 5. **Simulate before broadcast**, everywhere, without exception.
 6. **APR and APY are labelled distinctly** in every ABI, API response and pixel.
 7. **Compliance gates default to deny.**
+
+
+---
+
+## What remains
+
+Recorded rather than quietly dropped.
+
+| Gap | Why it is still open |
+|---|---|
+| Optimism Sepolia has no MultiBaas deployment | the free tier caps at two, and both are used (Base Sepolia, Ethereum Sepolia). A plan upgrade, not a code change. |
+| Cloud Wallet path unexercised live | a MultiBaas Cloud Wallet is backed by an external provider — Azure Key Vault, with a client id, secret, tenant and subscription — and HSM-protected keys need a Premium vault. That is an Azure account and a real cost, so it cannot be provisioned from here. `cloudWalletSigner` is written and compile-checked; custody is `local` on every chain until someone attaches a vault. |
+| Contracts unverified on the explorers | needs an Etherscan API key, which this environment does not have. |
+| Reorg detection | a leg reported `confirmed` is not re-checked if its block is reorged out. Acceptable on testnets, not on an L1 carrying value. |
+| Equity venue adapter | NVDAon's on-chain route is the issuer's gated mint/redeem window, not an AMM a fork can trade against. The desk's own guards are proved; the venue is a mock. |
+| MultiBaas keys are Administrators-scope | Internal Users is the production posture. An Administrators key can rewrite the audit record. |

@@ -1,0 +1,12 @@
+{
+  "chain": "OPSepolia",
+  "poolManager": "0xf7F5aB3DcA35e17dE187b459159BC643853B3c67",
+  "currency0": "0x903321db019c620a9907e76e29927e0e7acc4764",
+  "currency1": "0xc2ab86958061e874dd211a9d7c6860d2bf5c92f1",
+  "fee": 3000,
+  "tickSpacing": 60,
+  "hooks": "0x0000000000000000000000000000000000000000",
+  "seeder": "0x3e7dc855b050460316050f01381b7603d7b68dbe",
+  "liquidity": "1000000000000",
+  "tx": "0x9a1977b356d7ce0b0449fea0ab9623592e3fb1fdbdb38a849705dbd745fb982b"
+}

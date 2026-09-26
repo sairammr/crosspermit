@@ -69,7 +69,7 @@ already broadcast wins. Lock as well if the authority may already be live.
 Symptom: `DOMAIN_SEPARATOR()` differs between chains, or CrossPermit has code at different addresses.
 
 ```bash
-for rpc in $RPC_ETH_SEPOLIA $RPC_BASE_SEPOLIA $RPC_UNI_SEPOLIA; do
+for rpc in $RPC_ETH_SEPOLIA $RPC_BASE_SEPOLIA $RPC_OP_SEPOLIA; do
   cast call 0x659C6F027FC4F6b2fF7A18dF1e3C3ec78a99de1B 'DOMAIN_SEPARATOR()(bytes32)' --rpc-url $rpc
 done
 ```

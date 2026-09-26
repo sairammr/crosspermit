@@ -51,22 +51,28 @@ async function main() {
   const txm = await mb.listWalletTransactions(owner).catch(() => null);
   check(txm !== null, "transaction manager reachable", txm ? `${txm.length} tracked` : "");
 
-  console.log("\n--- register CrossPermit for indexing ---");
-  const treasury = new Treasury([{ chainId, config: cfg }]);
-  const reg = await treasury.registerCrossPermit({ chainId, address: crossPermit, abi, bin, startingBlock: "latest" });
-  check(reg.address === crossPermit, `CrossPermit registered as "${reg.label}"`, crossPermit);
+  console.log("\n--- register CrossPermit on every configured chain ---");
+  // Every chain the relayer serves, so a chain with no deployment is reported rather than skipped
+  // silently — a missing audit trail nobody was told about is worse than none at all.
+  const served = (process.env.RELAYER_CHAINS ?? "11155111,84532,11155420").split(",").map(Number);
+  const treasury = Treasury.fromEnv(process.env, served);
+  for (const line of await treasury.describe(served)) console.log(line);
 
-  const linked = await mb.listAddresses();
-  check(
-    linked.some((a) => a.address?.toLowerCase() === crossPermit.toLowerCase()),
-    "address alias resolves to the deployed CrossPermit",
-  );
+  for (const id of treasury.chains()) {
+    const reg = await treasury.registerCrossPermit({ chainId: id, address: crossPermit, abi, bin, startingBlock: "latest" });
+    check(reg.address === crossPermit, `chain ${id}: CrossPermit registered as "${reg.label}"`);
+    const linked = await treasury.get(id)!.listAddresses();
+    check(
+      linked.some((a) => a.address?.toLowerCase() === crossPermit.toLowerCase()),
+      `chain ${id}: address alias resolves to the deployed CrossPermit`,
+    );
+  }
 
   console.log("\n--- treasury view ---");
-  const ledger = await treasury.allowanceLedger(chainId, owner);
-  console.log(`  ${ledger.length} allowance row(s) for ${owner}`);
+  const ledger = await treasury.allowanceLedgerAllChains(owner);
+  console.log(`  ${ledger.length} allowance row(s) for ${owner} across ${treasury.chains().length} chain(s)`);
   for (const r of ledger.slice(0, 5)) {
-    console.log(`    ${r.token} -> ${r.spender}  amount=${r.amount} state=${r.state} signed_at=${r.timestamp}`);
+    console.log(`    chain ${r.chainId}  ${r.token} -> ${r.spender}  amount=${r.amount} state=${r.state}`);
   }
   // Indexing starts at "latest", so a fresh registration legitimately has nothing yet. Say which it
   // is rather than letting an empty ledger read as "no exposure".

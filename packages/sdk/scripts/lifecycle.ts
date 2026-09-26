@@ -64,7 +64,7 @@ const readJson = (p: string) => JSON.parse(readFileSync(here(p), "utf8"));
  */
 const CHAINS = [
   { key: "BaseSepolia", name: "Base Sepolia", chainId: 84532, rpc: "RPC_BASE_SEPOLIA", explorer: "https://sepolia.basescan.org", pull: 3_000000n, poolManager: "0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408" as Address },
-  { key: "UnichainSepolia", name: "Unichain Sepolia", chainId: 1301, rpc: "RPC_UNI_SEPOLIA", explorer: "https://sepolia.uniscan.xyz", pull: 4_000000n, poolManager: "0x00B036B58a818B1BC34d502D3fE730Db729e62AC" as Address },
+  { key: "OPSepolia", name: "Optimism Sepolia", chainId: 11155420, rpc: "RPC_OP_SEPOLIA", explorer: "https://sepolia-optimism.etherscan.io", pull: 4_000000n, poolManager: "0xf7F5aB3DcA35e17dE187b459159BC643853B3c67" as Address },
   { key: "Sepolia", name: "Ethereum Sepolia", chainId: 11155111, rpc: "RPC_ETH_SEPOLIA", explorer: "https://sepolia.etherscan.io", pull: 5_000000n, poolManager: "0xE03A1074c86CFeDd5C142C4F04F1a1536e203543" as Address },
 ] as const;
 
@@ -310,9 +310,14 @@ async function submitViaRelayer(
       signature: a.signature,
       legs: chains.map((c, i) => ({ chainId: c.chainId, bundle: a.bundles[i]!, proof: a.proofs[i]! })),
     };
+    // The relayer may require an API key. Sent when one is configured, omitted when it is not, so
+    // the same script drives an open relayer and a closed one.
+    // Named apiKey, not key: `key` is already the (salt, root) cache key in the enclosing scope, and
+    // shadowing it stored the result under the wrong one.
+    const apiKey = process.env.RELAYER_API_KEY?.trim();
     const res = await fetch(`${relayerUrl}/v1/intents?wait=1`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}) },
       body: JSON.stringify(toWire(intent)),
     });
     const body = (await res.json()) as { legs?: { chainId: number; txHash?: Hex; error?: string }[]; error?: string };

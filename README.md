@@ -3,7 +3,7 @@
 **One signature. Every chain.**
 
 A user signs **one** EIP-712 message. That signature sets token allowances and executes transfers on
-Ethereum Sepolia, Base Sepolia and Unichain Sepolia; a relayer submits all three legs from one HTTP
+Ethereum Sepolia, Base Sepolia and Optimism Sepolia; a relayer submits all three legs from one HTTP
 request; and a Uniswap Universal Router deployed with `permit2 := CrossPermit` spends them —
 including a **real Uniswap v4 swap on each chain**, settled out of that allowance.
 
@@ -40,9 +40,15 @@ via ERC-2470, solc 0.8.27 / optimizer 1e6 runs.
 
 | Chain | chainId | Router (`permit2 := CrossPermit`) |
 |---|---|---|
-| Ethereum Sepolia | 11155111 | [`0x010C1aB71984b7D53b0941d4A7537AE3B806078D`](https://sepolia.etherscan.io/address/0x010C1aB71984b7D53b0941d4A7537AE3B806078D) |
-| Base Sepolia | 84532 | [`0xd72f799E1af27E0d95aB4B9658A277A7811Fbcd0`](https://sepolia.basescan.org/address/0xd72f799E1af27E0d95aB4B9658A277A7811Fbcd0) |
-| Unichain Sepolia | 1301 | [`0xda3ab7325840F2d1E01cA66dBBEF88078FE34287`](https://sepolia.uniscan.xyz/address/0xda3ab7325840F2d1E01cA66dBBEF88078FE34287) |
+| Ethereum Sepolia | 11155111 | [`0x7B68d6740C5C66967271966E62fd1A3E01743E3c`](https://sepolia.etherscan.io/address/0x7B68d6740C5C66967271966E62fd1A3E01743E3c) |
+| Base Sepolia | 84532 | [`0x73ed10744987B65fAf6BD6FFdF1039Cb7eF97002`](https://sepolia.basescan.org/address/0x73ed10744987B65fAf6BD6FFdF1039Cb7eF97002) |
+| Optimism Sepolia | 11155420 | [`0x2E03912851a0e442C77Ce00506aA7664E45560Ac`](https://sepolia-optimism.etherscan.io/address/0x2E03912851a0e442C77Ce00506aA7664E45560Ac) |
+
+Optimism Sepolia was added after the fact, which is the strongest evidence the scheme works: the
+same init code and the same salt put CrossPermit at the **same address** on a chain it had never
+touched, and its `DOMAIN_SEPARATOR` came back byte-identical to the other two without any
+coordination. Unichain Sepolia was dropped because MultiBaas does not support it, so a chain there
+could never carry a control-plane audit trail.
 
 `PERMIT2` is an internal immutable with no getter, so the substitution is confirmed three ways: the
 deploy log, the constructor arguments in each broadcast artifact, and the CrossPermit address
@@ -56,7 +62,7 @@ SIGNED_CROSSPERMIT_TYPEHASH()  0x2b8986532571ca462e751db5072ea926966480857f91eeb
 CANCEL_CROSSPERMIT_TYPEHASH()  0x184e9b675fc89b0718770fb9e1bf1ebdfe0780b451ab8ed5b69ffdb0c83655ea
 ```
 
-Identical on Ethereum, Base and Unichain Sepolia, because the domain pins `chainId = 1` and the
+Identical on Ethereum, Base and Optimism Sepolia, because the domain pins `chainId = 1` and the
 CREATE2 address is the same everywhere.
 
 ### The v4 swap, and why it is the check that matters

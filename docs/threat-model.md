@@ -182,6 +182,6 @@ state — a rate-limited RPC returning empty must never read as "already deploye
 | Reorg detection | a `confirmed` leg could un-confirm | `apps/relayer` |
 | MultiBaas key is Administrators-scope | T5 residual is wider than it needs to be | control plane |
 | MultiBaas covers 1 of 3 chains | two chains have no control-plane audit trail | free tier, one deployment per network |
-| Cloud Wallet path unexercised live | custody alternative is compile-checked only | no HSM wallet created yet |
+| Cloud Wallet path unexercised live | custody alternative is compile-checked only | needs an Azure Key Vault (Premium tier for HSM keys); not provisionable without that account |
 | No fuzz on share maths or merkle builder | T10's residual is larger than it should be | `contracts/test` |
 | Contracts unverified on explorers | a reader cannot check the source against the address | deployment |

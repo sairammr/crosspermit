@@ -19,7 +19,7 @@ export type ChainConfig = {
 const KNOWN_CHAINS: (ChainConfig & { rpcEnv: string })[] = [
   { chainId: 11155111, name: "Ethereum Sepolia", rpcEnv: "RPC_ETH_SEPOLIA", rpcUrl: "", explorer: "https://sepolia.etherscan.io" },
   { chainId: 84532, name: "Base Sepolia", rpcEnv: "RPC_BASE_SEPOLIA", rpcUrl: "", explorer: "https://sepolia.basescan.org" },
-  { chainId: 1301, name: "Unichain Sepolia", rpcEnv: "RPC_UNI_SEPOLIA", rpcUrl: "", explorer: "https://sepolia.uniscan.xyz" },
+  { chainId: 11155420, name: "Optimism Sepolia", rpcEnv: "RPC_OP_SEPOLIA", rpcUrl: "", explorer: "https://sepolia-optimism.etherscan.io" },
 ];
 
 export type ChainRuntime = ChainConfig & {
