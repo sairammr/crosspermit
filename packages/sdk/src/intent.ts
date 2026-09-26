@@ -123,7 +123,19 @@ export function validateIntent(i: Intent, opts: { now?: number; minSecondsLeft?:
 
     // The leaf is recomputed from the bundle, never taken from the payload. Then the proof must fold
     // it into exactly the root that was signed — that is the whole authorisation check, offline.
-    const folded = processProof(leafOf(leg.bundle), leg.proof);
+    //
+    // Encoding is inside the try because this is a trust boundary: a malformed tokenKey or proof
+    // node makes viem throw, and an unhandled throw here surfaces to an HTTP caller as a 500. A
+    // caller that sent bad bytes deserves a 4xx telling them so, not a server error.
+    let folded: Hex;
+    try {
+      folded = processProof(leafOf(leg.bundle), leg.proof);
+    } catch (e) {
+      throw new IntentError(
+        "malformed",
+        `chain ${leg.chainId}: bundle or proof could not be encoded (${e instanceof Error ? e.message.split("\n")[0] : String(e)})`,
+      );
+    }
     if (folded.toLowerCase() !== i.root.toLowerCase()) {
       throw new IntentError("bad_proof", `chain ${leg.chainId}: proof folds to ${folded}, signed root is ${i.root}`);
     }

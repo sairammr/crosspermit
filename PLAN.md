@@ -24,14 +24,36 @@ through Uniswap's own unmodified Universal Router.
 |---|---|---|
 | P0 | Monorepo, pinned toolchain, license posture | **done** |
 | P1 | L1 contracts rebranded, restructured, compiling | **done** |
-| P2 | TS SDK — bundles, leaves, merkle, one signature | |
-| P3 | Test suite ported and green | |
-| P4 | Deterministic deploy, address reproduced, 3 testnets live | |
-| P5 | Relayer — one click, N chains | |
-| P6 | MultiBaas treasury adapter | |
+| P2 | TS SDK — bundles, leaves, merkle, one signature | **done** |
+| P3 | Test suite ported and green | **done** |
+| P4 | Deterministic deploy, address reproduced, 3 testnets live | **done** |
+| P5 | Relayer — one click, N chains | **done** |
+| P6 | MultiBaas treasury adapter | **done** |
 | P7 | Aave v4 yield + tokenized-equity desk | |
 | P8 | Institutional dashboard (WalletConnect) | |
 | P9 | Hardening — fuzz, invariants, threat model, ops runbook | |
+
+### Live addresses
+
+| | address |
+|---|---|
+| **CrossPermit** (all three chains) | `0x659C6F027FC4F6b2fF7A18dF1e3C3ec78a99de1B` |
+| Router — Ethereum Sepolia | `0x010C1aB71984b7D53b0941d4A7537AE3B806078D` |
+| Router — Base Sepolia | `0xd72f799E1af27E0d95aB4B9658A277A7811Fbcd0` |
+| Router — Unichain Sepolia | `0xda3ab7325840F2d1E01cA66dBBEF88078FE34287` |
+
+Salt `0xb2af67d67b308054b26d8fb210cab127bf699e936190ed01dd9052e7736d1c8c`
+(`keccak256("CrossPermit v1")`), via ERC-2470, solc 0.8.27 / optimizer 1e6 runs.
+
+Read live off all three deployments, which is the invariant the whole scheme rests on:
+
+```
+DOMAIN_SEPARATOR()             0x4ce820a58ffb00fe1b6cb52f083bdd1cfd176732c34db34a84517668750aa5e4
+SIGNED_CROSSPERMIT_TYPEHASH()  0x2b8986532571ca462e751db5072ea926966480857f91eebafcc04d28b5a33c3d
+CANCEL_CROSSPERMIT_TYPEHASH()  0x184e9b675fc89b0718770fb9e1bf1ebdfe0780b451ab8ed5b69ffdb0c83655ea
+```
+
+Identical on Ethereum, Base and Unichain Sepolia.
 
 ---
 

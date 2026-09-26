@@ -1,0 +1,17 @@
+{
+  "name": "@crosspermit/relayer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun run src/server.ts",
+    "dev": "bun --watch src/server.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@crosspermit/sdk": "workspace:*",
+    "@crosspermit/multibaas": "workspace:*",
+    "viem": "^2.21.0"
+  }
+}

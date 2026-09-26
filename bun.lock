@@ -10,6 +10,15 @@
         "typescript": "^5.6.0",
       },
     },
+    "apps/relayer": {
+      "name": "@crosspermit/relayer",
+      "version": "0.1.0",
+      "dependencies": {
+        "@crosspermit/multibaas": "workspace:*",
+        "@crosspermit/sdk": "workspace:*",
+        "viem": "^2.21.0",
+      },
+    },
     "packages/multibaas": {
       "name": "@crosspermit/multibaas",
       "version": "0.1.0",
@@ -33,6 +42,8 @@
     "@adraffy/ens-normalize": ["@adraffy/ens-normalize@1.11.1", "", {}, "sha512-nhCBV3quEgesuf7c7KYfperqSS14T8bYuvJ8PcLJp6znkZpFc0AuW4qBtr8eKVyPPe/8RSr7sglCWPU5eaxwKQ=="],
 
     "@crosspermit/multibaas": ["@crosspermit/multibaas@workspace:packages/multibaas"],
+
+    "@crosspermit/relayer": ["@crosspermit/relayer@workspace:apps/relayer"],
 
     "@crosspermit/sdk": ["@crosspermit/sdk@workspace:packages/sdk"],
 
